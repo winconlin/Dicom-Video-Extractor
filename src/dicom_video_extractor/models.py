@@ -16,12 +16,48 @@ class OutputFormat(str, Enum):
         return ".avi"
 
 
+class OverlayField(str, Enum):
+    PATIENT_ID = "patient_id"
+    PATIENT_NAME = "patient_name"
+    PATIENT_SEX = "patient_sex"
+    PATIENT_BIRTH_DATE = "patient_birth_date"
+    STUDY_ID = "study_id"
+    STUDY_DATE = "study_date"
+    STUDY_TIME = "study_time"
+    INSTITUTION_NAME = "institution_name"
+    MANUFACTURER = "manufacturer"
+    NUMBER_OF_FRAMES = "number_of_frames"
+    FPS = "fps"
+
+    @property
+    def label(self) -> str:
+        return {
+            OverlayField.PATIENT_ID: "Patient ID",
+            OverlayField.PATIENT_NAME: "Patient Name",
+            OverlayField.PATIENT_SEX: "Patient Sex",
+            OverlayField.PATIENT_BIRTH_DATE: "Birth Date",
+            OverlayField.STUDY_ID: "Study ID",
+            OverlayField.STUDY_DATE: "Study Date",
+            OverlayField.STUDY_TIME: "Study Time",
+            OverlayField.INSTITUTION_NAME: "Institution",
+            OverlayField.MANUFACTURER: "Manufacturer",
+            OverlayField.NUMBER_OF_FRAMES: "Frames",
+            OverlayField.FPS: "FPS",
+        }[self]
+
+
 @dataclass(slots=True)
 class ConversionOptions:
     output_format: OutputFormat = OutputFormat.AVI
     clip_limit: float = 1.5
     default_fps: int = 15
     fps_override: float | None = None
+    overlay_fields: tuple[OverlayField, ...] = ()
+    anonymize_overlay: bool = False
+
+    @property
+    def overlay_enabled(self) -> bool:
+        return bool(self.overlay_fields)
 
 
 @dataclass(slots=True)

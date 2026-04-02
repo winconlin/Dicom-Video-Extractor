@@ -7,6 +7,7 @@ import numpy as np
 
 from .metadata import extract_metadata
 from .models import ConversionFailure, ConversionOptions, ConversionResult, OutputFormat
+from .overlay import build_overlay_lines
 
 try:
     import SimpleITK as sitk
@@ -151,6 +152,70 @@ def enhance_frames(frames: np.ndarray, clip_limit: float) -> np.ndarray:
     return np.stack([_apply_clahe_to_color_frame(frame, clip_limit) for frame in frames], axis=0)
 
 
+def _draw_overlay_box(
+    frame: np.ndarray,
+    top_left: tuple[int, int],
+    bottom_right: tuple[int, int],
+) -> np.ndarray:
+    cv2 = _require_cv2()
+    if frame.ndim == 2:
+        output = frame.copy()
+        cv2.rectangle(output, top_left, bottom_right, 0, thickness=-1)
+        return output
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, top_left, bottom_right, (0, 0, 0), thickness=-1)
+    return cv2.addWeighted(overlay, 0.35, frame, 0.65, 0.0)
+
+
+def _overlay_frame_text(frame: np.ndarray, lines: list[str]) -> np.ndarray:
+    if not lines:
+        return frame
+
+    cv2 = _require_cv2()
+    output = frame.copy()
+    height, width = output.shape[:2]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = max(0.5, min(height, width) / 900.0)
+    thickness = max(1, int(round(font_scale * 2)))
+    margin = max(10, int(round(font_scale * 18)))
+    line_spacing = max(8, int(round(font_scale * 12)))
+
+    text_sizes = [cv2.getTextSize(line, font, font_scale, thickness)[0] for line in lines]
+    max_width = max(size[0] for size in text_sizes)
+    line_height = max(size[1] for size in text_sizes)
+    box_height = margin * 2 + len(lines) * line_height + (len(lines) - 1) * line_spacing
+    box_width = margin * 2 + max_width
+
+    output = _draw_overlay_box(output, (12, 12), (12 + box_width, 12 + box_height))
+    text_color: int | tuple[int, int, int]
+    if output.ndim == 2:
+        text_color = 255
+    else:
+        text_color = (255, 255, 255)
+
+    baseline_y = 12 + margin + line_height
+    for index, line in enumerate(lines):
+        y = baseline_y + index * (line_height + line_spacing)
+        cv2.putText(
+            output,
+            line,
+            (12 + margin, y),
+            font,
+            font_scale,
+            text_color,
+            thickness,
+            cv2.LINE_AA,
+        )
+    return output
+
+
+def overlay_metadata_on_frames(frames: np.ndarray, lines: list[str]) -> np.ndarray:
+    if not lines:
+        return frames
+    return np.stack([_overlay_frame_text(frame, lines) for frame in frames], axis=0)
+
+
 def build_output_path(
     source_path: str | Path,
     output_dir: str | Path,
@@ -223,11 +288,17 @@ def convert_file(
     raw_frames = load_dicom_frames(source_path)
     normalized_frames = normalize_pixel_array(raw_frames)
     enhanced_frames = enhance_frames(normalized_frames, resolved_options.clip_limit)
+    overlay_lines = build_overlay_lines(
+        metadata,
+        resolved_options.overlay_fields,
+        anonymize=resolved_options.anonymize_overlay,
+    )
+    final_frames = overlay_metadata_on_frames(enhanced_frames, overlay_lines)
     output_path = build_output_path(source_path, output_dir, resolved_options.output_format)
 
     fps = metadata.cine_rate or float(resolved_options.default_fps)
     write_video(
-        enhanced_frames,
+        final_frames,
         output_path,
         fps=fps,
         output_format=resolved_options.output_format,
@@ -236,7 +307,7 @@ def convert_file(
     return ConversionResult(
         source_path=Path(source_path),
         output_path=output_path,
-        frame_count=int(enhanced_frames.shape[0]),
+        frame_count=int(final_frames.shape[0]),
         fps=fps,
         output_format=resolved_options.output_format,
     )

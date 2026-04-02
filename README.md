@@ -3,49 +3,124 @@
 Modernized standalone DICOM-to-video converter based on the upstream project
 [`YangChuan80/WillowbendDICOM`](https://github.com/YangChuan80/WillowbendDICOM).
 
-This repository now separates:
+## Deutsch
 
-- archived upstream reference material
-- active application source code
-- local build artifacts that should never be committed
+### Was dieses Programm macht
 
-## Current Project Layout
+Dieses Programm liest DICOM-Dateien ein und exportiert daraus Videos.
 
-- `src/dicom_video_extractor/`
-  Active application code.
-- `tests/`
-  Lightweight regression tests for core conversion behavior.
-- `scripts/build-windows.ps1`
-  PyInstaller-based Windows build entry point.
-- `Original/Source/`
-  Archived upstream source reference kept for comparison during migration.
-- `Enhanced/`
-  Archived enhanced upstream source reference without bundled runtime binaries.
+Neu im modernisierten Fork:
 
-## Why This Fork Exists
+- einfachere Bedienung
+- robustere DICOM-Konvertierung
+- optionale Metadaten-Einblendung direkt im Video
+- optionale Anonymisierung fuer eingeblendete Personendaten
+- automatische Build-Pipeline fuer Windows, macOS und Linux ueber GitHub Releases
 
-The upstream repository mixes source code with frozen binaries, installers,
-notebook checkpoints, and historical Windows runtime payloads. That makes the
-project large and difficult to maintain.
+### Download fuer normale Nutzer
 
-This fork is being reshaped to provide:
+Du musst die EXE normalerweise **nicht selbst bauen**.
 
-- a cleaner Python package structure
-- a more robust DICOM conversion pipeline
-- a standalone Windows executable build path
-- room for fixes, extensions, and better testing
+Sobald Releases erstellt werden, kannst du auf der GitHub-Seite einfach die
+passende Datei herunterladen:
 
-## What Has Been Modernized Already
+- `Dicom-Video-Extractor-windows-x64.zip`
+- `Dicom-Video-Extractor-macos.zip`
+- `Dicom-Video-Extractor-linux-x64.tar.gz`
 
-- conversion logic was extracted from the old single-file scripts into
-  dedicated modules
-- DICOM metadata handling and frame-rate inference were separated from the GUI
-- the new Tkinter GUI now acts as a thin wrapper around reusable conversion code
-- basic tests now cover frame normalization, FPS inference, and output naming
-- historical bundled binaries and installers were removed from the current
-  project tree
+Die Dateien werden automatisch ueber GitHub Actions gebaut, wenn ein neues Tag
+wie `v1.0.0` erstellt wird oder der Workflow manuell gestartet wird.
 
-## Local Development
+### Windows Anleitung
+
+1. Auf GitHub den neuesten Release oeffnen.
+2. `Dicom-Video-Extractor-windows-x64.zip` herunterladen.
+3. ZIP-Datei entpacken.
+4. Den Ordner `Dicom-Video-Extractor` oeffnen.
+5. `Dicom-Video-Extractor.exe` starten.
+
+Falls Windows nachfragt:
+
+- mit "Weitere Informationen" und dann "Trotzdem ausfuehren" bestaetigen
+- das kann bei nicht signierten Programmen normal sein
+
+### macOS Anleitung
+
+1. Auf GitHub den neuesten Release oeffnen.
+2. `Dicom-Video-Extractor-macos.zip` herunterladen.
+3. ZIP-Datei entpacken.
+4. Die App aus dem entpackten Ordner starten.
+
+Falls macOS blockiert:
+
+- in `Systemeinstellungen -> Datenschutz & Sicherheit` die App erlauben
+- beim ersten Start eventuell Rechtsklick -> Oeffnen verwenden
+
+Hinweis:
+
+- die App ist aktuell nicht notariell signiert
+
+### Linux Anleitung
+
+1. Auf GitHub den neuesten Release oeffnen.
+2. `Dicom-Video-Extractor-linux-x64.tar.gz` herunterladen.
+3. Archiv entpacken.
+4. Im entpackten Ordner das Programm starten.
+
+Beispiel:
+
+```bash
+tar -xzf Dicom-Video-Extractor-linux-x64.tar.gz
+cd Dicom-Video-Extractor
+./Dicom-Video-Extractor
+```
+
+### Bedienung ganz einfach
+
+1. DICOM-Dateien auswaehlen.
+2. Zielordner auswaehlen.
+3. Optional Format und FPS anpassen.
+4. Optional "Video overlay" aktivieren.
+5. Auswaehlen, welche Metadaten eingeblendet werden sollen.
+6. Optional "Anonymize personal data" aktivieren.
+7. Auf `Convert` klicken.
+
+### Was bei der Anonymisierung passiert
+
+Wenn die Anonymisierung aktiviert ist, werden eingeblendete Personendaten
+veraendert:
+
+- Name wird in einen Platzhalternamen wie `Max Mustermann`, `Erika Musterfrau`,
+  `John Doe` oder `Jane Doe` umgewandelt
+- Patient ID wird zu einem anonymisierten Kennzeichen wie `ANON-XXXXXXXX`
+- Geburtsdatum wird zu Geburtsjahr oder Alter reduziert, wenn das moeglich ist
+
+### Wichtiger Hinweis zu komprimierten DICOM-Dateien
+
+Einige DICOM-Dateien brauchen zusaetzliche Decoder. Wenn so eine Datei nicht
+gelesen werden kann, gibt das Programm inzwischen einen klareren Hinweis auf
+passende Decoder wie `GDCM` oder `pylibjpeg`.
+
+## English
+
+### What it does
+
+This application converts DICOM files into video files and can optionally burn
+selected metadata into the exported video.
+
+### Simple downloads
+
+End users should not need to build the app themselves. GitHub Actions can build
+release artifacts for:
+
+- Windows
+- macOS
+- Linux
+
+Tagged releases such as `v1.0.0` publish downloadable archives on the GitHub
+Releases page.
+
+### Local development
 
 Recommended Python version:
 
@@ -74,40 +149,40 @@ $env:PYTHONPATH='src'
 .\.venv\Scripts\python.exe app.py
 ```
 
-## Building A Windows EXE
+### Build locally
 
-Use the provided build script:
+Windows:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 ```
 
-The generated application will be placed under:
+Cross-platform local build entry point:
 
-```text
-dist/Dicom-Video-Extractor/
+```powershell
+python .\scripts\build-release.py
 ```
 
-## Release Strategy
+Build output:
 
-Going forward, this repository should keep only:
+```text
+release-build/dist/Dicom-Video-Extractor/
+```
 
-- source code
-- tests
-- small static assets
-- build scripts
+## Current Project Layout
 
-It should not store generated EXEs, installers, embedded Python runtimes, or
-temporary notebook artifacts in Git. New releases should be created from the
-build output in `dist/`, ideally through GitHub Releases rather than committed
-binary payloads.
-
-## Known Next Steps
-
-- validate the new converter against real-world DICOM samples
-- improve handling for compressed transfer syntaxes and edge-case pixel layouts
-- add smoke tests for the packaged Windows build
-- optionally clean the historical Git history to remove legacy large binaries
+- `src/dicom_video_extractor/`
+  Active application code.
+- `tests/`
+  Regression tests for conversion, frame-rate inference, and overlay behavior.
+- `scripts/build-release.py`
+  Shared PyInstaller entry point for release builds.
+- `.github/workflows/release.yml`
+  Cross-platform GitHub Actions build and release pipeline.
+- `Original/Source/`
+  Archived upstream source reference kept for comparison during migration.
+- `Enhanced/`
+  Archived enhanced upstream source reference without bundled runtime binaries.
 
 ## License
 

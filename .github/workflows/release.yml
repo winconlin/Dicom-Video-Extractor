@@ -1,0 +1,87 @@
+name: Build Releases
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: Dicom-Video-Extractor-windows-x64.zip
+          - os: macos-latest
+            artifact_name: Dicom-Video-Extractor-macos.zip
+          - os: ubuntu-latest
+            artifact_name: Dicom-Video-Extractor-linux-x64.tar.gz
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk libgl1 libglib2.0-0
+
+      - name: Install project dependencies
+        run: python -m pip install -e .[build]
+
+      - name: Build packaged app
+        run: python scripts/build-release.py
+
+      - name: Archive Windows build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path release-build/dist/Dicom-Video-Extractor/* -DestinationPath release/${{ matrix.artifact_name }}
+
+      - name: Archive macOS build
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p release
+          ditto -c -k --sequesterRsrc --keepParent release-build/dist/Dicom-Video-Extractor release/${{ matrix.artifact_name }}
+
+      - name: Archive Linux build
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p release
+          tar -czf release/${{ matrix.artifact_name }} -C release-build/dist Dicom-Video-Extractor
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release/${{ matrix.artifact_name }}
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*/*

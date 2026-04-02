@@ -14,6 +14,8 @@ env/
 
 build/
 dist/
+release-build/
+release-build-fallback/
 *.spec
 
 *.log
