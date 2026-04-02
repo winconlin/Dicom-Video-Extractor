@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dicom-video-extractor"
+version = "0.1.0"
+description = "Standalone DICOM-to-video converter with a modernized Python/Tkinter codebase."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "winconlin" },
+]
+dependencies = [
+  "numpy>=1.26",
+  "opencv-python>=4.10",
+  "pydicom>=3.0",
+  "SimpleITK>=2.4",
+]
+
+[project.optional-dependencies]
+build = [
+  "pyinstaller>=6.0",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
