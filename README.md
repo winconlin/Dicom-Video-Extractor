@@ -14,10 +14,10 @@ Neu im modernisierten Fork:
 - einfachere Bedienung
 - robustere DICOM-Konvertierung
 - optionale Metadaten-Einblendung direkt im Video
-- optionale Anonymisierung fuer eingeblendete Personendaten
-- automatische Build-Pipeline fuer Windows, macOS und Linux ueber GitHub Releases
+- optionale Anonymisierung für eingeblendete Personendaten
+- automatische Build-Pipeline für Windows, macOS und Linux über GitHub Releases
 
-### Download fuer normale Nutzer
+### Download für normale Nutzer
 
 Du musst die EXE normalerweise **nicht selbst bauen**.
 
@@ -28,25 +28,25 @@ passende Datei herunterladen:
 - `Dicom-Video-Extractor-macos.zip`
 - `Dicom-Video-Extractor-linux-x64.tar.gz`
 
-Die Dateien werden automatisch ueber GitHub Actions gebaut, wenn ein neues Tag
+Die Dateien werden automatisch über GitHub Actions gebaut, wenn ein neues Tag
 wie `v1.0.0` erstellt wird oder der Workflow manuell gestartet wird.
 
 ### Windows Anleitung
 
-1. Auf GitHub den neuesten Release oeffnen.
+1. Auf GitHub den neuesten Release öffnen.
 2. `Dicom-Video-Extractor-windows-x64.zip` herunterladen.
 3. ZIP-Datei entpacken.
-4. Den Ordner `Dicom-Video-Extractor` oeffnen.
+4. Den Ordner `Dicom-Video-Extractor` öffnen.
 5. `Dicom-Video-Extractor.exe` starten.
 
 Falls Windows nachfragt:
 
-- mit "Weitere Informationen" und dann "Trotzdem ausfuehren" bestaetigen
+- mit "Weitere Informationen" und dann "Trotzdem ausführen" bestätigen
 - das kann bei nicht signierten Programmen normal sein
 
 ### macOS Anleitung
 
-1. Auf GitHub den neuesten Release oeffnen.
+1. Auf GitHub den neuesten Release öffnen.
 2. `Dicom-Video-Extractor-macos.zip` herunterladen.
 3. ZIP-Datei entpacken.
 4. Die App aus dem entpackten Ordner starten.
@@ -54,7 +54,7 @@ Falls Windows nachfragt:
 Falls macOS blockiert:
 
 - in `Systemeinstellungen -> Datenschutz & Sicherheit` die App erlauben
-- beim ersten Start eventuell Rechtsklick -> Oeffnen verwenden
+- beim ersten Start eventuell Rechtsklick -> Öffnen verwenden
 
 Hinweis:
 
@@ -62,7 +62,7 @@ Hinweis:
 
 ### Linux Anleitung
 
-1. Auf GitHub den neuesten Release oeffnen.
+1. Auf GitHub den neuesten Release öffnen.
 2. `Dicom-Video-Extractor-linux-x64.tar.gz` herunterladen.
 3. Archiv entpacken.
 4. Im entpackten Ordner das Programm starten.
@@ -77,27 +77,27 @@ cd Dicom-Video-Extractor
 
 ### Bedienung ganz einfach
 
-1. DICOM-Dateien auswaehlen.
-2. Zielordner auswaehlen.
+1. DICOM-Dateien auswählen.
+2. Zielordner auswählen.
 3. Optional Format und FPS anpassen.
 4. Optional "Video overlay" aktivieren.
-5. Auswaehlen, welche Metadaten eingeblendet werden sollen.
+5. Auswählen, welche Metadaten eingeblendet werden sollen.
 6. Optional "Anonymize personal data" aktivieren.
 7. Auf `Convert` klicken.
 
 ### Was bei der Anonymisierung passiert
 
 Wenn die Anonymisierung aktiviert ist, werden eingeblendete Personendaten
-veraendert:
+verändert:
 
 - Name wird in einen Platzhalternamen wie `Max Mustermann`, `Erika Musterfrau`,
   `John Doe` oder `Jane Doe` umgewandelt
 - Patient ID wird zu einem anonymisierten Kennzeichen wie `ANON-XXXXXXXX`
-- Geburtsdatum wird zu Geburtsjahr oder Alter reduziert, wenn das moeglich ist
+- Geburtsdatum wird zu Geburtsjahr oder Alter reduziert, wenn das möglich ist
 
 ### Wichtiger Hinweis zu komprimierten DICOM-Dateien
 
-Einige DICOM-Dateien brauchen zusaetzliche Decoder. Wenn so eine Datei nicht
+Einige DICOM-Dateien brauchen zusätzliche Decoder. Wenn so eine Datei nicht
 gelesen werden kann, gibt das Programm inzwischen einen klareren Hinweis auf
 passende Decoder wie `GDCM` oder `pylibjpeg`.
 

@@ -9,3 +9,4 @@
 - added optional metadata overlays directly in exported videos
 - added optional anonymization for overlaid patient data
 - expanded the README with simple German and English usage instructions
+- prepared curated release notes for GitHub Releases

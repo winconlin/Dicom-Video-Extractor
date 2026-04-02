@@ -85,5 +85,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
           files: release-assets/*/*
-          generate_release_notes: true
