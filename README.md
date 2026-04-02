@@ -1,97 +1,114 @@
-# Willowbend DICOM
-A dialog-based DICOM-to-video converter.
+# Dicom Video Extractor
 
-***Chuan Yang*** (<yangc@sj-hospital.org>)
+Modernized standalone DICOM-to-video converter based on the upstream project
+[`YangChuan80/WillowbendDICOM`](https://github.com/YangChuan80/WillowbendDICOM).
 
-[![Windows Build status](https://img.shields.io/badge/Windows-passing-brightgreen.svg)](https://github.com/YangChuan80/WillowbendDICOM)
-[![MIT license](https://img.shields.io/badge/license-MIT%20License-blue.svg)](LICENSE)
-[![Dowloads](https://img.shields.io/badge/downloads-43M-green.svg)](https://github.com/YangChuan80/WillowbendDICOM/raw/master/Installer/WillowbendDICOM_Installer.exe?raw=true)
-[![Medicine Application](https://img.shields.io/badge/application-medicine-red.svg)](README.md)
-[![DICOM](https://img.shields.io/badge/application-DICOM-yellow.svg)](README.md)
-[![Home](https://img.shields.io/badge/GitHub-home-ff69b4.svg)](https://github.com/YangChuan80)
+This repository now separates:
 
-## Introduction
-**DICOM (Digital Imaging and Communications in Medicine)** is a standard for handling, storing, printing, and transmitting information in medical imaging. DICOM files can be exchanged between two entities that are capable of receiving image and patient data in DICOM format by following network communications protocol. DICOM has been widely adopted by hospitals and is making inroads in smaller applications like dentists' and doctors' offices.
+- archived upstream reference material
+- active application source code
+- local build artifacts that should never be committed
 
-**Willowbend DICOM** is a dialog-based application performing the conversion from DICOM format to video format (avi) in order to meet the needs and requirements for universal computer systems (PC, Mac, Linux, etc.). So the ordinary users of such systems can use the converted file to present, communicate and store the universal files. 
+## Current Project Layout
 
-Medical imaging related staffs (including Interventional Cardiologists, Physicians of Peripheral Intervention, Neurointerventional Physicians, Medical Imaging Physicians and Radiological Technicians) can use it in medical conferences, educations and remote consultants of clinical medicine, and they will feel free to use universal video formats in the slide presentations in medical courses and case reports. 
+- `src/dicom_video_extractor/`
+  Active application code.
+- `tests/`
+  Lightweight regression tests for core conversion behavior.
+- `scripts/build-windows.ps1`
+  PyInstaller-based Windows build entry point.
+- `Original/Source/`
+  Archived upstream source reference kept for comparison during migration.
+- `Enhanced/`
+  Archived enhanced upstream source reference without bundled runtime binaries.
 
-Furthermore, besides efficiently converting a file from DICOM to AVI format, Willowbend DICOM can implement **auto grey-scale optimization** and customization for every frame in a DICOM before conversion, and it's able to extract patient's information rapidly from the DICOM files. 
-[![Auto Grey-scale Optimization](agso.png)](README.md)
+## Why This Fork Exists
 
-## Installation from Binaries
-- Download **[WillowbendDICOM_Enhanced 32-bit Installer.exe](https://github.com/YangChuan80/WillowbendDICOM/blob/master/Enhanced/installer/Willowbend%20Enhanced%2032-bit%20optFPS.exe?raw=true)** file from **[here](https://github.com/YangChuan80/WillowbendDICOM/blob/master/Enhanced/installer/Willowbend%20Enhanced%2032-bit%20optFPS.exe?raw=true)**, which is a NSIS installation file only used in Windows platform. 
-- After downloading, you can install it directly. When finished, a folder with the same name have been made. Enter the folder WillowbendDICOM, run the **WillowbendDICOM.EXE** to go!
-- This option is for ordinary users, who are not required to possess any knowledge of Python programming language or to have Python interpreter configured on their computers.
-- Willowbend DICOM can currently be installed on Windows 7 or later platform only.
+The upstream repository mixes source code with frozen binaries, installers,
+notebook checkpoints, and historical Windows runtime payloads. That makes the
+project large and difficult to maintain.
 
-## Installation from Source
-This option is only adopted by Python specialist. There are several dependencies necessarily preinstalled in your Python interpreter:
+This fork is being reshaped to provide:
 
-- **SimpleITK**
-```
- conda install --channel https://conda.anaconda.org/SimpleITK SimpleITK
- ```
-Also,
-```
-pip install simpleitk
-```
+- a cleaner Python package structure
+- a more robust DICOM conversion pipeline
+- a standalone Windows executable build path
+- room for fixes, extensions, and better testing
 
-- **Pydicom** 1.0
- - Download pydicom source from [https://github.com/darcymason/pydicom](https://github.com/darcymason/pydicom)
- - Of course, also:
-```
-pip install pydicom
-```
+## What Has Been Modernized Already
 
-- **OpenCV**
- - The opencv should be the the latest version:
-```
-pip install opencv-python -U
-```
-After you complete the WillowbendDICOM.py file download, run it:
-```
-python WillowbendDICOM.py
-```
-Python interpreter have to be Python 3.4 or later.
+- conversion logic was extracted from the old single-file scripts into
+  dedicated modules
+- DICOM metadata handling and frame-rate inference were separated from the GUI
+- the new Tkinter GUI now acts as a thin wrapper around reusable conversion code
+- basic tests now cover frame normalization, FPS inference, and output naming
+- historical bundled binaries and installers were removed from the current
+  project tree
 
-- **Setuptools & Pyinstaler**
- - If you'd like to use **PyInstaller**, you should downgrade your **setuptools** module to **19.2**.
+## Local Development
 
-To perform frozen binary, do this:
-```
-pyinstaller WillowbendDICOM.py -w
+Recommended Python version:
+
+```powershell
+Python 3.11+
 ```
 
-## Instructions
-- Click **Browse** button to choose the DICOM file(s). 
-- Load this chosen file. Don't forget to press **Load** button. When file successfully loaded, a information dialog will pop up to notice you. 
-- Click **Convert** button on the right to convert the currently loaded DICOM file to AVI file. During this session, you will be asked to specify the location you're going to output to. Click **OK**. You'll wait for about a second, and your AVI file is ready! Congratulations!
-- Optionally, you can customize the value of the **Clip Limit** if you're not satisfied with your converted AVI file with the default value of 3.0. The higher value means the more contrast effect in the video file you'll get. 
+Create a virtual environment and install dependencies:
+
+```powershell
+python -m venv .venv --without-pip
+python -m pip --python .\.venv\Scripts\python.exe install -e .[build]
+```
+
+Run tests:
+
+```powershell
+$env:PYTHONPATH='src'
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Run the app:
+
+```powershell
+$env:PYTHONPATH='src'
+.\.venv\Scripts\python.exe app.py
+```
+
+## Building A Windows EXE
+
+Use the provided build script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+```
+
+The generated application will be placed under:
+
+```text
+dist/Dicom-Video-Extractor/
+```
+
+## Release Strategy
+
+Going forward, this repository should keep only:
+
+- source code
+- tests
+- small static assets
+- build scripts
+
+It should not store generated EXEs, installers, embedded Python runtimes, or
+temporary notebook artifacts in Git. New releases should be created from the
+build output in `dist/`, ideally through GitHub Releases rather than committed
+binary payloads.
+
+## Known Next Steps
+
+- validate the new converter against real-world DICOM samples
+- improve handling for compressed transfer syntaxes and edge-case pixel layouts
+- add smoke tests for the packaged Windows build
+- optionally clean the historical Git history to remove legacy large binaries
 
 ## License
-The MIT License (MIT)
 
-Copyright (c) 2019 Chuan Yang
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-## Contributor List
-- [@wenzhexue](http://github.com/wenzhexue) (**Wenzhe Xue**, Ph.D., Mayo Clinic) 
+MIT. See [LICENSE](LICENSE).
