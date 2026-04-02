@@ -57,7 +57,16 @@ def load_dicom_frames(path: str | Path) -> np.ndarray:
         errors.append(f"pydicom: {exc}")
 
     joined_errors = "; ".join(errors) if errors else "Unknown DICOM loading error."
-    raise DicomConversionError(f"Could not decode pixel data from {source_path}: {joined_errors}")
+    decoder_hint = ""
+    lowered_errors = joined_errors.lower()
+    if any(keyword in lowered_errors for keyword in ("transfer syntax", "decoder", "decompress", "compressed")):
+        decoder_hint = (
+            " Install an appropriate pixel data decoder such as GDCM or pylibjpeg "
+            "for compressed transfer syntaxes."
+        )
+    raise DicomConversionError(
+        f"Could not decode pixel data from {source_path}: {joined_errors}.{decoder_hint}"
+    )
 
 
 def _scale_frame_to_uint8(frame: np.ndarray) -> np.ndarray:
@@ -81,29 +90,41 @@ def _scale_frame_to_uint8(frame: np.ndarray) -> np.ndarray:
     return np.clip(scaled, 0, 255).astype(np.uint8)
 
 
+def _flatten_grayscale_frames(array: np.ndarray) -> np.ndarray:
+    height, width = array.shape[-2:]
+    return array.reshape((-1, height, width))
+
+
+def _flatten_color_frames(array: np.ndarray) -> np.ndarray:
+    height, width, channels = array.shape[-3:]
+    flattened = array.reshape((-1, height, width, channels))
+    if channels == 4:
+        return flattened[..., :3]
+    return flattened
+
+
 def normalize_pixel_array(pixel_array: np.ndarray) -> np.ndarray:
     array = np.asarray(pixel_array)
     array = np.squeeze(array)
 
-    if array.ndim == 2:
-        normalized = array[np.newaxis, ...]
-    elif array.ndim == 3:
-        if array.shape[-1] in (3, 4):
-            normalized = array[np.newaxis, ...]
-        else:
-            normalized = array
-    elif array.ndim == 4 and array.shape[-1] in (3, 4):
-        normalized = array
-    else:
+    if array.ndim < 2:
         raise DicomConversionError(
-            f"Unsupported DICOM pixel array shape {array.shape}. Expected 2D, 3D, or 4D RGB data."
+            f"Unsupported DICOM pixel array shape {array.shape}. Expected at least two dimensions."
+        )
+    if array.ndim > 4:
+        raise DicomConversionError(
+            f"Unsupported DICOM pixel array shape {array.shape}. Expected between two and four dimensions."
         )
 
-    if normalized.ndim == 4 and normalized.shape[-1] == 4:
-        normalized = normalized[..., :3]
-
-    if normalized.ndim == 3:
-        return np.stack([_scale_frame_to_uint8(frame) for frame in normalized], axis=0)
+    if array.ndim == 2:
+        normalized = array[np.newaxis, ...]
+    elif array.shape[-1] in (3, 4):
+        normalized = _flatten_color_frames(array)
+    elif array.ndim == 3 and array.shape[0] in (3, 4):
+        moved = np.moveaxis(array, -3, -1)
+        normalized = _flatten_color_frames(moved)
+    else:
+        normalized = _flatten_grayscale_frames(array)
 
     return np.stack([_scale_frame_to_uint8(frame) for frame in normalized], axis=0)
 

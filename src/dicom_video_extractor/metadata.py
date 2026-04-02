@@ -36,6 +36,37 @@ def _int_value(dataset: Any, attribute: str) -> int | None:
         return None
 
 
+def _float_value(dataset: Any, attribute: str) -> float | None:
+    value = getattr(dataset, attribute, None)
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_list_value(dataset: Any, attribute: str) -> list[float]:
+    value = getattr(dataset, attribute, None)
+    if value in (None, ""):
+        return []
+
+    try:
+        items = list(value)
+    except TypeError:
+        items = [value]
+
+    parsed_values: list[float] = []
+    for item in items:
+        try:
+            parsed = float(item)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            parsed_values.append(parsed)
+    return parsed_values
+
+
 def infer_frame_rate_from_dataset(
     dataset: Any,
     *,
@@ -46,24 +77,26 @@ def infer_frame_rate_from_dataset(
         return float(fps_override)
 
     for attribute in ("CineRate", "RecommendedDisplayFrameRate"):
-        value = getattr(dataset, attribute, None)
-        if value in (None, ""):
-            continue
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
+        parsed = _float_value(dataset, attribute)
+        if parsed is None:
             continue
         if parsed > 0:
             return parsed
 
-    frame_time_ms = getattr(dataset, "FrameTime", None)
-    if frame_time_ms not in (None, ""):
-        try:
-            parsed = float(frame_time_ms)
-        except (TypeError, ValueError):
-            parsed = 0.0
-        if parsed > 0:
-            return 1000.0 / parsed
+    frame_time_ms = _float_value(dataset, "FrameTime")
+    if frame_time_ms is not None and frame_time_ms > 0:
+        return 1000.0 / frame_time_ms
+
+    frame_time_vector = _float_list_value(dataset, "FrameTimeVector")
+    if frame_time_vector:
+        average_frame_time_ms = sum(frame_time_vector) / len(frame_time_vector)
+        if average_frame_time_ms > 0:
+            return 1000.0 / average_frame_time_ms
+
+    effective_duration = _float_value(dataset, "EffectiveDuration")
+    number_of_frames = _int_value(dataset, "NumberOfFrames")
+    if effective_duration is not None and effective_duration > 0 and number_of_frames and number_of_frames > 1:
+        return number_of_frames / effective_duration
 
     return float(default_fps)
 
