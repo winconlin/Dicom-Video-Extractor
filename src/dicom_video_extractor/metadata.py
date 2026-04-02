@@ -10,7 +10,9 @@ def _require_dcmread() -> Any:
     try:
         from pydicom import dcmread
     except ImportError as exc:  # pragma: no cover - depends on local environment
-        raise RuntimeError("pydicom is not installed. Install project dependencies before reading DICOM files.") from exc
+        raise RuntimeError(
+            "pydicom is not installed. Install project dependencies before reading DICOM files."
+        ) from exc
     return dcmread
 
 
@@ -31,7 +33,7 @@ def _int_value(dataset: Any, attribute: str) -> int | None:
     if value in (None, ""):
         return None
     try:
-        return int(value)
+        return int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
 
@@ -41,7 +43,7 @@ def _float_value(dataset: Any, attribute: str) -> float | None:
     if value in (None, ""):
         return None
     try:
-        return float(value)
+        return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
 
@@ -52,7 +54,7 @@ def _float_list_value(dataset: Any, attribute: str) -> list[float]:
         return []
 
     try:
-        items = list(value)
+        items = list(value)  # type: ignore[arg-type]
     except TypeError:
         items = [value]
 
@@ -95,7 +97,12 @@ def infer_frame_rate_from_dataset(
 
     effective_duration = _float_value(dataset, "EffectiveDuration")
     number_of_frames = _int_value(dataset, "NumberOfFrames")
-    if effective_duration is not None and effective_duration > 0 and number_of_frames and number_of_frames > 1:
+    if (
+        effective_duration is not None
+        and effective_duration > 0
+        and number_of_frames
+        and number_of_frames > 1
+    ):
         return number_of_frames / effective_duration
 
     return float(default_fps)

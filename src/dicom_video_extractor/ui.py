@@ -32,7 +32,12 @@ class WillowbendApp:
         self.file_count_var = tk.StringVar(value="0")
         self.overlay_field_vars = {
             field: tk.BooleanVar(
-                value=field in (OverlayField.PATIENT_NAME, OverlayField.STUDY_DATE, OverlayField.FPS)
+                value=field
+                in (
+                    OverlayField.PATIENT_NAME,
+                    OverlayField.STUDY_DATE,
+                    OverlayField.FPS,
+                )
             )
             for field in ordered_overlay_fields()
         }
@@ -86,7 +91,9 @@ class WillowbendApp:
         metadata_box.columnconfigure(1, weight=1)
 
         for row_index, label in enumerate(self.metadata_vars):
-            ttk.Label(metadata_box, text=label).grid(row=row_index, column=0, sticky="w", pady=3)
+            ttk.Label(metadata_box, text=label).grid(
+                row=row_index, column=0, sticky="w", pady=3
+            )
             ttk.Label(metadata_box, textvariable=self.metadata_vars[label]).grid(
                 row=row_index,
                 column=1,
@@ -117,9 +124,13 @@ class WillowbendApp:
             sticky="ew",
             padx=(8, 8),
         )
-        ttk.Button(controls, text="Browse...", command=self.choose_output_folder).grid(row=0, column=4)
+        ttk.Button(controls, text="Browse...", command=self.choose_output_folder).grid(
+            row=0, column=4
+        )
 
-        ttk.Label(controls, text="Clip limit").grid(row=1, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(controls, text="Clip limit").grid(
+            row=1, column=0, sticky="w", pady=(10, 0)
+        )
         ttk.Entry(controls, width=10, textvariable=self.clip_limit_var).grid(
             row=1,
             column=1,
@@ -128,7 +139,9 @@ class WillowbendApp:
             pady=(10, 0),
         )
 
-        ttk.Label(controls, text="FPS override").grid(row=1, column=2, sticky="w", pady=(10, 0))
+        ttk.Label(controls, text="FPS override").grid(
+            row=1, column=2, sticky="w", pady=(10, 0)
+        )
         ttk.Entry(controls, width=10, textvariable=self.fps_override_var).grid(
             row=1,
             column=3,
@@ -137,7 +150,9 @@ class WillowbendApp:
             pady=(10, 0),
         )
 
-        ttk.Label(controls, text="Format").grid(row=1, column=4, sticky="w", pady=(10, 0))
+        ttk.Label(controls, text="Format").grid(
+            row=1, column=4, sticky="w", pady=(10, 0)
+        )
         format_box = ttk.Combobox(
             controls,
             textvariable=self.output_format_var,
@@ -181,15 +196,23 @@ class WillowbendApp:
         actions.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(16, 0))
         actions.columnconfigure(2, weight=1)
 
-        ttk.Button(actions, text="Select DICOM files...", command=self.choose_files).grid(row=0, column=0)
-        ttk.Button(actions, text="Refresh metadata", command=self.refresh_metadata).grid(
+        ttk.Button(
+            actions, text="Select DICOM files...", command=self.choose_files
+        ).grid(row=0, column=0)
+        ttk.Button(
+            actions, text="Refresh metadata", command=self.refresh_metadata
+        ).grid(
             row=0,
             column=1,
             padx=(8, 0),
         )
         ttk.Label(actions, text="Files:").grid(row=0, column=3, sticky="e")
-        ttk.Label(actions, textvariable=self.file_count_var).grid(row=0, column=4, sticky="w", padx=(6, 0))
-        ttk.Button(actions, text="Convert", command=self.convert).grid(row=0, column=5, padx=(12, 0))
+        ttk.Label(actions, textvariable=self.file_count_var).grid(
+            row=0, column=4, sticky="w", padx=(6, 0)
+        )
+        ttk.Button(actions, text="Convert", command=self.convert).grid(
+            row=0, column=5, padx=(12, 0)
+        )
 
         status = ttk.Label(frame, textvariable=self.status_var)
         status.grid(row=5, column=0, columnspan=2, sticky="w", pady=(12, 0))
@@ -227,11 +250,15 @@ class WillowbendApp:
 
     def refresh_metadata(self) -> None:
         if not self.selected_files:
-            messagebox.showwarning("No file selected", "Choose one or more DICOM files first.")
+            messagebox.showwarning(
+                "No file selected", "Choose one or more DICOM files first."
+            )
             return
 
         try:
-            fps_override = self._parse_optional_positive_float(self.fps_override_var.get())
+            fps_override = self._parse_optional_positive_float(
+                self.fps_override_var.get()
+            )
             metadata = extract_metadata(
                 self.selected_files[0],
                 fps_override=fps_override,
@@ -263,10 +290,12 @@ class WillowbendApp:
 
         fps_override = self._parse_optional_positive_float(self.fps_override_var.get())
         output_format = OutputFormat(self.output_format_var.get())
-        overlay_fields = ()
+        overlay_fields: tuple[OverlayField, ...] = ()
         if self.overlay_enabled_var.get():
             overlay_fields = tuple(
-                field for field, variable in self.overlay_field_vars.items() if variable.get()
+                field
+                for field, variable in self.overlay_field_vars.items()
+                if variable.get()
             )
 
         return ConversionOptions(
@@ -279,7 +308,9 @@ class WillowbendApp:
 
     def convert(self) -> None:
         if not self.selected_files:
-            messagebox.showwarning("No files selected", "Choose one or more DICOM files first.")
+            messagebox.showwarning(
+                "No files selected", "Choose one or more DICOM files first."
+            )
             return
 
         output_dir = self.output_dir_var.get().strip()
@@ -308,19 +339,25 @@ class WillowbendApp:
 
         if results and failures:
             failure_text = "\n".join(
-                f"- {failure.source_path.name}: {failure.message}" for failure in failures[:5]
+                f"- {failure.source_path.name}: {failure.message}"
+                for failure in failures[:5]
             )
             messagebox.showwarning(
                 "Partial success",
                 f"Converted {len(results)} file(s), but {len(failures)} failed:\n{failure_text}",
             )
-            self.status_var.set(f"Converted {len(results)} file(s), {len(failures)} failed.")
+            self.status_var.set(
+                f"Converted {len(results)} file(s), {len(failures)} failed."
+            )
             return
 
         failure_text = "\n".join(
-            f"- {failure.source_path.name}: {failure.message}" for failure in failures[:5]
+            f"- {failure.source_path.name}: {failure.message}"
+            for failure in failures[:5]
         )
-        messagebox.showerror("Conversion failed", failure_text or "Unknown conversion error.")
+        messagebox.showerror(
+            "Conversion failed", failure_text or "Unknown conversion error."
+        )
         self.status_var.set("Conversion failed.")
 
 

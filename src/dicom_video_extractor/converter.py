@@ -12,7 +12,7 @@ from .overlay import build_overlay_lines
 try:
     import SimpleITK as sitk
 except ImportError:  # pragma: no cover - optional import path
-    sitk = None
+    sitk = None  # type: ignore[assignment]
 
 
 class DicomConversionError(RuntimeError):
@@ -60,7 +60,10 @@ def load_dicom_frames(path: str | Path) -> np.ndarray:
     joined_errors = "; ".join(errors) if errors else "Unknown DICOM loading error."
     decoder_hint = ""
     lowered_errors = joined_errors.lower()
-    if any(keyword in lowered_errors for keyword in ("transfer syntax", "decoder", "decompress", "compressed")):
+    if any(
+        keyword in lowered_errors
+        for keyword in ("transfer syntax", "decoder", "decompress", "compressed")
+    ):
         decoder_hint = (
             " Install an appropriate pixel data decoder such as GDCM or pylibjpeg "
             "for compressed transfer syntaxes."
@@ -81,13 +84,13 @@ def _scale_frame_to_uint8(frame: np.ndarray) -> np.ndarray:
             return frame.astype(np.uint8, copy=True)
 
     frame_float = frame.astype(np.float32, copy=False)
-    min_value = float(frame_float.min())
-    max_value = float(frame_float.max())
+    min_val_f = float(frame_float.min())
+    max_val_f = float(frame_float.max())
 
-    if max_value <= min_value:
+    if max_val_f <= min_val_f:
         return np.zeros(frame.shape, dtype=np.uint8)
 
-    scaled = (frame_float - min_value) * (255.0 / (max_value - min_value))
+    scaled = (frame_float - min_val_f) * (255.0 / (max_val_f - min_val_f))
     return np.clip(scaled, 0, 255).astype(np.uint8)
 
 
@@ -149,7 +152,9 @@ def enhance_frames(frames: np.ndarray, clip_limit: float) -> np.ndarray:
         clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
         return np.stack([clahe.apply(frame) for frame in frames], axis=0)
 
-    return np.stack([_apply_clahe_to_color_frame(frame, clip_limit) for frame in frames], axis=0)
+    return np.stack(
+        [_apply_clahe_to_color_frame(frame, clip_limit) for frame in frames], axis=0
+    )
 
 
 def _draw_overlay_box(
@@ -181,7 +186,9 @@ def _overlay_frame_text(frame: np.ndarray, lines: list[str]) -> np.ndarray:
     margin = max(10, int(round(font_scale * 18)))
     line_spacing = max(8, int(round(font_scale * 12)))
 
-    text_sizes = [cv2.getTextSize(line, font, font_scale, thickness)[0] for line in lines]
+    text_sizes = [
+        cv2.getTextSize(line, font, font_scale, thickness)[0] for line in lines
+    ]
     max_width = max(size[0] for size in text_sizes)
     line_height = max(size[1] for size in text_sizes)
     box_height = margin * 2 + len(lines) * line_height + (len(lines) - 1) * line_spacing
@@ -294,7 +301,9 @@ def convert_file(
         anonymize=resolved_options.anonymize_overlay,
     )
     final_frames = overlay_metadata_on_frames(enhanced_frames, overlay_lines)
-    output_path = build_output_path(source_path, output_dir, resolved_options.output_format)
+    output_path = build_output_path(
+        source_path, output_dir, resolved_options.output_format
+    )
 
     fps = metadata.cine_rate or float(resolved_options.default_fps)
     write_video(
