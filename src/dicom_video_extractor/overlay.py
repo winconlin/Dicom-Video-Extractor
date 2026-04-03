@@ -42,7 +42,9 @@ def _field_value(metadata: DicomMetadata, field: OverlayField) -> str:
     if field is OverlayField.MANUFACTURER:
         return metadata.manufacturer
     if field is OverlayField.NUMBER_OF_FRAMES:
-        return "" if metadata.number_of_frames is None else str(metadata.number_of_frames)
+        return (
+            "" if metadata.number_of_frames is None else str(metadata.number_of_frames)
+        )
     if field is OverlayField.FPS:
         return "" if metadata.cine_rate is None else f"{metadata.cine_rate:g}"
     raise ValueError(f"Unsupported overlay field: {field}")
@@ -84,7 +86,10 @@ def _anonymized_birth_value(metadata: DicomMetadata) -> str:
     study_date = _parse_dicom_date(metadata.study_date)
     if birth_date is not None and study_date is not None and study_date >= birth_date:
         years = study_date.year - birth_date.year
-        before_birthday = (study_date.month, study_date.day) < (birth_date.month, birth_date.day)
+        before_birthday = (study_date.month, study_date.day) < (
+            birth_date.month,
+            birth_date.day,
+        )
         age = years - int(before_birthday)
         if age >= 0:
             return f"Age {age}"
@@ -117,7 +122,11 @@ def build_overlay_lines(
     for field in ordered_overlay_fields():
         if field not in fields:
             continue
-        value = anonymized_overlay_value(metadata, field) if anonymize else _field_value(metadata, field)
+        value = (
+            anonymized_overlay_value(metadata, field)
+            if anonymize
+            else _field_value(metadata, field)
+        )
         if not value:
             continue
         lines.append(f"{field.label}: {value}")

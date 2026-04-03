@@ -86,7 +86,10 @@ class DicomMetadata:
             ("Study Time", self.study_time),
             ("Institution", self.institution_name),
             ("Manufacturer", self.manufacturer),
-            ("Frames", "" if self.number_of_frames is None else str(self.number_of_frames)),
+            (
+                "Frames",
+                "" if self.number_of_frames is None else str(self.number_of_frames),
+            ),
             ("FPS", "" if self.cine_rate is None else f"{self.cine_rate:g}"),
         ]
 

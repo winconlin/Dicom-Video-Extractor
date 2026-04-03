@@ -9,7 +9,14 @@ from .converter import (
     write_video,
 )
 from .metadata import extract_metadata, infer_frame_rate_from_dataset, read_dataset
-from .models import ConversionFailure, ConversionOptions, ConversionResult, DicomMetadata, OutputFormat, OverlayField
+from .models import (
+    ConversionFailure,
+    ConversionOptions,
+    ConversionResult,
+    DicomMetadata,
+    OutputFormat,
+    OverlayField,
+)
 from .overlay import build_overlay_lines, ordered_overlay_fields
 from .ui import WillowbendApp, main
 
