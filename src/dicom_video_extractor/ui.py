@@ -9,8 +9,15 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 
 from .converter import convert_file, detect_content_type, load_dicom_frames, normalize_pixel_array
-from .metadata import extract_metadata, read_dataset
-from .models import ConversionFailure, ConversionOptions, ConversionResult, DicomContentType, OverlayField
+from .metadata import extract_metadata, parse_dicomdir_series, read_dataset
+from .models import (
+    ConversionFailure,
+    ConversionOptions,
+    ConversionResult,
+    DicomContentType,
+    DicomDirSeries,
+    OverlayField,
+)
 from .overlay import ordered_overlay_fields
 
 
@@ -76,6 +83,7 @@ class WillowbendApp:
         self.queue_current_file_var = tk.StringVar(value="Current file: -")
         self.select_files_button: ttk.Button | None = None
         self.select_folder_button: ttk.Button | None = None
+        self.select_dicomdir_button: ttk.Button | None = None
         self.refresh_button: ttk.Button | None = None
         self.convert_button: ttk.Button | None = None
         self.pause_queue_button: ttk.Button | None = None
@@ -265,7 +273,7 @@ class WillowbendApp:
 
         actions = ttk.Frame(frame)
         actions.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(16, 0))
-        actions.columnconfigure(5, weight=1)
+        actions.columnconfigure(6, weight=1)
 
         self.select_files_button = ttk.Button(
             actions, text="Select DICOM files...", command=self.choose_files
@@ -279,33 +287,41 @@ class WillowbendApp:
             column=1,
             padx=(8, 0),
         )
+        self.select_dicomdir_button = ttk.Button(
+            actions, text="Select DICOMDIR...", command=self.choose_dicomdir
+        )
+        self.select_dicomdir_button.grid(
+            row=0,
+            column=2,
+            padx=(8, 0),
+        )
         self.refresh_button = ttk.Button(
             actions, text="Refresh metadata", command=self.refresh_metadata
         )
         self.refresh_button.grid(
             row=0,
-            column=2,
+            column=3,
             padx=(8, 0),
         )
         self.convert_button = ttk.Button(actions, text="Convert Queue", command=self.convert)
-        self.convert_button.grid(row=0, column=3, padx=(12, 0))
+        self.convert_button.grid(row=0, column=4, padx=(12, 0))
         self.pause_queue_button = ttk.Button(
             actions,
             text="Pause Queue",
             command=self.pause_conversion_queue,
             state="disabled",
         )
-        self.pause_queue_button.grid(row=0, column=4, padx=(8, 0))
+        self.pause_queue_button.grid(row=0, column=5, padx=(8, 0))
         self.resume_queue_button = ttk.Button(
             actions,
             text="Resume Queue",
             command=self.resume_conversion_queue,
             state="disabled",
         )
-        self.resume_queue_button.grid(row=0, column=5, padx=(8, 0))
-        ttk.Label(actions, text="Files:").grid(row=0, column=6, sticky="e")
+        self.resume_queue_button.grid(row=0, column=6, padx=(8, 0))
+        ttk.Label(actions, text="Files:").grid(row=0, column=7, sticky="e")
         ttk.Label(actions, textvariable=self.file_count_var).grid(
-            row=0, column=7, sticky="w", padx=(6, 0)
+            row=0, column=8, sticky="w", padx=(6, 0)
         )
 
         status = ttk.Label(frame, textvariable=self.status_var)
@@ -351,6 +367,7 @@ class WillowbendApp:
         paused = self.queue_paused
         self._set_button_state(self.select_files_button, enabled=not busy)
         self._set_button_state(self.select_folder_button, enabled=not busy)
+        self._set_button_state(self.select_dicomdir_button, enabled=not busy)
         self._set_button_state(self.refresh_button, enabled=not busy)
         self._set_button_state(self.move_up_button, enabled=not busy)
         self._set_button_state(self.move_down_button, enabled=not busy)
@@ -472,6 +489,122 @@ class WillowbendApp:
             output_dir_hint=root_dir,
             source_label=f"folder scan ({root_dir})",
         )
+
+    def choose_dicomdir(self) -> None:
+        if self.queue_running:
+            messagebox.showinfo("Queue running", "Pause or wait for the queue to finish before changing files.")
+            return
+
+        dicomdir = filedialog.askopenfilename(
+            title="Choose DICOMDIR file",
+            filetypes=(
+                ("DICOMDIR", "DICOMDIR *.dicomdir *.DICOMDIR"),
+                ("All files", "*"),
+            ),
+        )
+        if not dicomdir:
+            return
+
+        dicomdir_path = Path(dicomdir)
+        try:
+            series = parse_dicomdir_series(dicomdir_path)
+        except Exception as exc:
+            messagebox.showerror("DICOMDIR error", str(exc))
+            self.status_var.set("DICOMDIR parsing failed.")
+            return
+
+        if not series:
+            messagebox.showwarning("No series found", "No importable image series were found in DICOMDIR.")
+            self.status_var.set("DICOMDIR contains no importable series.")
+            return
+
+        selected_series = self._select_series_from_dicomdir(series)
+        if not selected_series:
+            self.status_var.set("DICOMDIR import canceled.")
+            return
+
+        selected_files: list[Path] = []
+        for item in selected_series:
+            selected_files.extend(item.files)
+
+        deduplicated_files = list(dict.fromkeys(selected_files))
+        if not deduplicated_files:
+            messagebox.showwarning("No files selected", "No files were selected from DICOMDIR.")
+            self.status_var.set("DICOMDIR selection returned no files.")
+            return
+
+        self.status_var.set(
+            f"DICOMDIR selected: {len(selected_series)} series, {len(deduplicated_files)} referenced file(s)."
+        )
+        self.root.update_idletasks()
+        self._apply_dicom_selection(
+            deduplicated_files,
+            output_dir_hint=dicomdir_path.parent,
+            source_label=f"DICOMDIR ({dicomdir_path.name})",
+        )
+
+    def _select_series_from_dicomdir(self, series: list[DicomDirSeries]) -> list[DicomDirSeries]:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select DICOMDIR series")
+        dialog.geometry("860x500")
+        dialog.minsize(760, 420)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        frame = ttk.Frame(dialog, padding=12)
+        frame.grid(sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(1, weight=1)
+        dialog.columnconfigure(0, weight=1)
+        dialog.rowconfigure(0, weight=1)
+
+        ttk.Label(
+            frame,
+            text="Choose one or more series from DICOMDIR (default: all selected):",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+
+        listbox = tk.Listbox(frame, selectmode=tk.EXTENDED, exportselection=False)
+        listbox.grid(row=1, column=0, sticky="nsew")
+        for item in series:
+            listbox.insert(tk.END, item.display_label)
+        if series:
+            listbox.selection_set(0, tk.END)
+
+        confirmed = {"value": False}
+        selected_indices: list[int] = []
+
+        def _select_all() -> None:
+            if not series:
+                return
+            listbox.selection_set(0, tk.END)
+
+        def _clear_selection() -> None:
+            listbox.selection_clear(0, tk.END)
+
+        def _confirm() -> None:
+            if not listbox.curselection():
+                messagebox.showwarning("No selection", "Choose at least one series.")
+                return
+            confirmed["value"] = True
+            selected_indices.extend(int(index) for index in listbox.curselection())
+            dialog.destroy()
+
+        def _cancel() -> None:
+            dialog.destroy()
+
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        ttk.Button(buttons, text="Select all", command=_select_all).grid(row=0, column=0)
+        ttk.Button(buttons, text="Clear", command=_clear_selection).grid(row=0, column=1, padx=(8, 0))
+        ttk.Button(buttons, text="Import selected", command=_confirm).grid(row=0, column=2, padx=(8, 0))
+        ttk.Button(buttons, text="Cancel", command=_cancel).grid(row=0, column=3, padx=(8, 0))
+
+        dialog.wait_window()
+
+        if not confirmed["value"]:
+            return []
+
+        return [series[index] for index in selected_indices]
 
     def _apply_dicom_selection(
         self,

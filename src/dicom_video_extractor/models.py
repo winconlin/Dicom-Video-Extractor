@@ -100,6 +100,23 @@ class DicomMetadata:
 
 
 @dataclass(slots=True)
+class DicomDirSeries:
+    study_instance_uid: str
+    series_instance_uid: str
+    study_description: str
+    series_description: str
+    modality: str
+    files: tuple[Path, ...]
+
+    @property
+    def display_label(self) -> str:
+        study_label = self.study_description or self.study_instance_uid or "Unknown Study"
+        series_label = self.series_description or self.series_instance_uid or "Unknown Series"
+        modality_label = self.modality or "N/A"
+        return f"{study_label} | {series_label} | {modality_label} | {len(self.files)} file(s)"
+
+
+@dataclass(slots=True)
 class ConversionResult:
     source_path: Path
     output_paths: tuple[Path, ...]

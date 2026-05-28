@@ -11,11 +11,12 @@ from .converter import (
     write_image,
     write_video,
 )
-from .metadata import extract_metadata, infer_frame_rate_from_dataset, read_dataset
+from .metadata import extract_metadata, infer_frame_rate_from_dataset, parse_dicomdir_series, read_dataset
 from .models import (
     ConversionFailure,
     ConversionOptions,
     ConversionResult,
+    DicomDirSeries,
     DicomContentType,
     DicomMetadata,
     OutputFormat,
@@ -28,6 +29,7 @@ __all__ = [
     "ConversionFailure",
     "ConversionOptions",
     "ConversionResult",
+    "DicomDirSeries",
     "DicomContentType",
     "DicomConversionError",
     "DicomMetadata",
@@ -42,6 +44,7 @@ __all__ = [
     "enhance_frames",
     "extract_metadata",
     "infer_frame_rate_from_dataset",
+    "parse_dicomdir_series",
     "load_dicom_frames",
     "main",
     "normalize_pixel_array",
