@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,13 +11,22 @@ import numpy as np
 from dicom_video_extractor.converter import (
     DicomConversionError,
     apply_window_preset,
+    build_sidecar_paths,
     build_output_path,
     build_output_paths_for_content,
     detect_content_type,
     normalize_pixel_array,
+    write_metadata_sidecars,
 )
 from dicom_video_extractor.metadata import infer_frame_rate_from_dataset
-from dicom_video_extractor.models import DicomContentType, DicomMetadata, OutputFormat, WindowPreset
+from dicom_video_extractor.models import (
+    ConversionOptions,
+    ConversionResult,
+    DicomContentType,
+    DicomMetadata,
+    OutputFormat,
+    WindowPreset,
+)
 
 
 class NormalizePixelArrayTests(unittest.TestCase):
@@ -153,6 +164,50 @@ class WindowPresetTests(unittest.TestCase):
 
         self.assertEqual(result.shape, image.shape)
         self.assertEqual(result.dtype, image.dtype)
+
+
+class SidecarExportTests(unittest.TestCase):
+    def test_build_sidecar_paths_uses_source_stem(self) -> None:
+        json_path, csv_path = build_sidecar_paths("C:/input/scan.dcm", "C:/out")
+        self.assertEqual(json_path, Path("C:/out/scan.json"))
+        self.assertEqual(csv_path, Path("C:/out/scan.csv"))
+
+    def test_write_metadata_sidecars_creates_json_and_csv(self) -> None:
+        metadata = DicomMetadata(
+            source_path=Path("C:/input/scan.dcm"),
+            modality="CT",
+            patient_id="123",
+            number_of_frames=12,
+            cine_rate=24.0,
+        )
+        result = ConversionResult(
+            source_path=Path("C:/input/scan.dcm"),
+            output_paths=(Path("C:/out/scan.mp4"), Path("C:/out/scan.avi")),
+            frame_count=12,
+            fps=24.0,
+            content_type=DicomContentType.MOVING_IMAGE,
+        )
+        options = ConversionOptions(window_preset=WindowPreset.CT_SOFT_TISSUE)
+
+        with TemporaryDirectory() as tempdir:
+            json_path, csv_path = write_metadata_sidecars(
+                metadata,
+                result,
+                options,
+                tempdir,
+            )
+            self.assertTrue(json_path.exists())
+            self.assertTrue(csv_path.exists())
+
+            payload = json.loads(json_path.read_text(encoding="utf-8"))
+            self.assertEqual(Path(payload["source_path"]), Path("C:/input/scan.dcm"))
+            self.assertEqual(payload["content_type"], "moving_image")
+            self.assertEqual(payload["window_preset"], "CT Soft Tissue")
+            self.assertEqual(payload["modality"], "CT")
+
+            csv_content = csv_path.read_text(encoding="utf-8")
+            self.assertIn("source_path,content_type,frame_count", csv_content)
+            self.assertIn("scan.dcm", csv_content)
 
 
 if __name__ == "__main__":
