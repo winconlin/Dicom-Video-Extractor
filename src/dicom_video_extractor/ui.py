@@ -16,6 +16,7 @@ from .models import (
     ConversionResult,
     DicomContentType,
     DicomDirSeries,
+    ExportProfile,
     OverlayField,
     WindowPreset,
 )
@@ -74,6 +75,7 @@ class WillowbendApp:
         self.output_dir_var = tk.StringVar(value=str(Path.cwd()))
         self.clip_limit_var = tk.StringVar(value="1.5")
         self.fps_override_var = tk.StringVar(value="")
+        self.export_profile_var = tk.StringVar(value=ExportProfile.CUSTOM.value)
         self.window_preset_var = tk.StringVar(value=WindowPreset.AUTO.value)
         self.export_sidecars_var = tk.BooleanVar(value=True)
         self.overlay_enabled_var = tk.BooleanVar(value=False)
@@ -95,6 +97,8 @@ class WillowbendApp:
         self.move_down_button: ttk.Button | None = None
         self.prioritize_button: ttk.Button | None = None
         self.queue_progress_bar: ttk.Progressbar | None = None
+        self.anonymize_overlay_button: ttk.Checkbutton | None = None
+        self.overlay_field_buttons: dict[OverlayField, ttk.Checkbutton] = {}
         self.overlay_field_vars = {
             field: tk.BooleanVar(
                 value=field
@@ -125,6 +129,7 @@ class WillowbendApp:
 
         self._build_window()
         self._build_layout()
+        self._set_overlay_controls_state()
         self._set_queue_ui_state()
         self._apply_icon()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -242,6 +247,24 @@ class WillowbendApp:
             pady=(10, 0),
         )
 
+        ttk.Label(controls, text="Export profile").grid(
+            row=1, column=4, sticky="w", pady=(10, 0)
+        )
+        export_profile_box = ttk.Combobox(
+            controls,
+            textvariable=self.export_profile_var,
+            values=[item.value for item in ExportProfile],
+            state="readonly",
+            width=18,
+        )
+        export_profile_box.grid(
+            row=1,
+            column=5,
+            sticky="w",
+            pady=(10, 0),
+        )
+        export_profile_box.bind("<<ComboboxSelected>>", self._on_export_profile_changed)
+
         ttk.Label(controls, text="Window preset").grid(
             row=2, column=0, sticky="w", pady=(10, 0)
         )
@@ -280,12 +303,14 @@ class WillowbendApp:
             overlay_box,
             text="Embed selected metadata into exported media",
             variable=self.overlay_enabled_var,
+            command=self._on_overlay_toggle,
         ).grid(row=0, column=0, sticky="w")
-        ttk.Checkbutton(
+        self.anonymize_overlay_button = ttk.Checkbutton(
             overlay_box,
             text="Anonymize personal data",
             variable=self.anonymize_overlay_var,
-        ).grid(row=0, column=1, sticky="w", padx=(16, 0))
+        )
+        self.anonymize_overlay_button.grid(row=0, column=1, sticky="w", padx=(16, 0))
 
         ttk.Label(
             overlay_box,
@@ -295,11 +320,13 @@ class WillowbendApp:
         for index, field in enumerate(ordered_overlay_fields()):
             row = 2 + index // 2
             column = index % 2
-            ttk.Checkbutton(
+            button = ttk.Checkbutton(
                 overlay_box,
                 text=field.label,
                 variable=self.overlay_field_vars[field],
-            ).grid(row=row, column=column, sticky="w", padx=(0, 16), pady=2)
+            )
+            button.grid(row=row, column=column, sticky="w", padx=(0, 16), pady=2)
+            self.overlay_field_buttons[field] = button
 
         actions = ttk.Frame(frame)
         actions.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(16, 0))
@@ -748,12 +775,83 @@ class WillowbendApp:
             raise ValueError("FPS override must be a positive number.")
         return value
 
+    def _set_overlay_controls_state(self) -> None:
+        state = "normal" if self.overlay_enabled_var.get() else "disabled"
+        if self.anonymize_overlay_button is not None:
+            self.anonymize_overlay_button.configure(state=state)
+        for button in self.overlay_field_buttons.values():
+            button.configure(state=state)
+
+    def _set_overlay_field_selection(self, fields: tuple[OverlayField, ...]) -> None:
+        selected = set(fields)
+        for field, variable in self.overlay_field_vars.items():
+            variable.set(field in selected)
+
+    def _on_overlay_toggle(self) -> None:
+        self._set_overlay_controls_state()
+
+    def _on_export_profile_changed(self, _: object) -> None:
+        profile = ExportProfile(self.export_profile_var.get())
+        self._apply_export_profile(profile)
+
+    def _apply_export_profile(self, profile: ExportProfile) -> None:
+        if profile is ExportProfile.CUSTOM:
+            self._set_overlay_controls_state()
+            return
+
+        self.window_preset_var.set(WindowPreset.AUTO.value)
+        self.export_sidecars_var.set(True)
+
+        if profile is ExportProfile.CLINIC_STANDARD:
+            self.overlay_enabled_var.set(False)
+            self.anonymize_overlay_var.set(False)
+            self._set_overlay_field_selection(
+                (
+                    OverlayField.PATIENT_NAME,
+                    OverlayField.STUDY_DATE,
+                    OverlayField.FPS,
+                )
+            )
+        elif profile is ExportProfile.RESEARCH:
+            self.overlay_enabled_var.set(True)
+            self.anonymize_overlay_var.set(True)
+            self._set_overlay_field_selection(
+                (
+                    OverlayField.STUDY_DATE,
+                    OverlayField.STUDY_TIME,
+                    OverlayField.STUDY_ID,
+                    OverlayField.INSTITUTION_NAME,
+                    OverlayField.MANUFACTURER,
+                    OverlayField.NUMBER_OF_FRAMES,
+                    OverlayField.FPS,
+                )
+            )
+        elif profile is ExportProfile.ANONYMIZED:
+            self.overlay_enabled_var.set(True)
+            self.anonymize_overlay_var.set(True)
+            self._set_overlay_field_selection(
+                (
+                    OverlayField.PATIENT_NAME,
+                    OverlayField.PATIENT_ID,
+                    OverlayField.PATIENT_BIRTH_DATE,
+                    OverlayField.STUDY_DATE,
+                    OverlayField.STUDY_TIME,
+                    OverlayField.STUDY_ID,
+                    OverlayField.NUMBER_OF_FRAMES,
+                    OverlayField.FPS,
+                )
+            )
+
+        self._set_overlay_controls_state()
+        self.status_var.set(f"Export profile applied: {profile.value}.")
+
     def _conversion_options(self) -> ConversionOptions:
         clip_limit = float(self.clip_limit_var.get().strip())
         if clip_limit < 0:
             raise ValueError("Clip limit must be zero or greater.")
 
         fps_override = self._parse_optional_positive_float(self.fps_override_var.get())
+        export_profile = ExportProfile(self.export_profile_var.get())
         window_preset = WindowPreset(self.window_preset_var.get())
         overlay_fields = ()
         if self.overlay_enabled_var.get():
@@ -766,10 +864,11 @@ class WillowbendApp:
         return ConversionOptions(
             clip_limit=clip_limit,
             fps_override=fps_override,
+            export_profile=export_profile,
             window_preset=window_preset,
             export_sidecars=self.export_sidecars_var.get(),
             overlay_fields=overlay_fields,
-            anonymize_overlay=self.anonymize_overlay_var.get(),
+            anonymize_overlay=self.overlay_enabled_var.get() and self.anonymize_overlay_var.get(),
         )
 
     def _load_preview_for_index(self, index: int) -> None:

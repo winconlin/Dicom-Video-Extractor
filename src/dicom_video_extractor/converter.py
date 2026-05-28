@@ -387,6 +387,7 @@ def _sidecar_payload(
         "frame_count": result.frame_count,
         "fps": result.fps,
         "output_paths": "|".join(str(path) for path in result.output_paths),
+        "export_profile": options.export_profile.value,
         "window_preset": options.window_preset.value,
         "clip_limit": options.clip_limit,
         "fps_override": options.fps_override,

@@ -30,6 +30,13 @@ class WindowPreset(str, Enum):
     US_GENERAL = "US General"
 
 
+class ExportProfile(str, Enum):
+    CUSTOM = "Custom"
+    CLINIC_STANDARD = "Clinic Standard"
+    RESEARCH = "Research"
+    ANONYMIZED = "Anonymized"
+
+
 class OverlayField(str, Enum):
     PATIENT_ID = "patient_id"
     PATIENT_NAME = "patient_name"
@@ -66,6 +73,7 @@ class ConversionOptions:
     clip_limit: float = 1.5
     default_fps: int = 15
     fps_override: float | None = None
+    export_profile: ExportProfile = ExportProfile.CUSTOM
     window_preset: WindowPreset = WindowPreset.AUTO
     export_sidecars: bool = True
     overlay_fields: tuple[OverlayField, ...] = ()

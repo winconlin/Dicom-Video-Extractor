@@ -24,6 +24,7 @@ from dicom_video_extractor.models import (
     ConversionResult,
     DicomContentType,
     DicomMetadata,
+    ExportProfile,
     OutputFormat,
     WindowPreset,
 )
@@ -202,12 +203,19 @@ class SidecarExportTests(unittest.TestCase):
             payload = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(Path(payload["source_path"]), Path("C:/input/scan.dcm"))
             self.assertEqual(payload["content_type"], "moving_image")
+            self.assertEqual(payload["export_profile"], "Custom")
             self.assertEqual(payload["window_preset"], "CT Soft Tissue")
             self.assertEqual(payload["modality"], "CT")
 
             csv_content = csv_path.read_text(encoding="utf-8")
             self.assertIn("source_path,content_type,frame_count", csv_content)
             self.assertIn("scan.dcm", csv_content)
+
+
+class ConversionOptionsTests(unittest.TestCase):
+    def test_default_export_profile_is_custom(self) -> None:
+        options = ConversionOptions()
+        self.assertEqual(options.export_profile, ExportProfile.CUSTOM)
 
 
 if __name__ == "__main__":
