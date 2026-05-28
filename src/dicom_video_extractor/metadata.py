@@ -43,6 +43,10 @@ def _float_value(dataset: Any, attribute: str) -> float | None:
     if value in (None, ""):
         return None
     try:
+        value = value[0]  # type: ignore[index]
+    except (TypeError, IndexError, KeyError):
+        pass
+    try:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
@@ -119,6 +123,7 @@ def extract_metadata(
 
     return DicomMetadata(
         source_path=source_path,
+        modality=_text_value(dataset, "Modality"),
         patient_id=_text_value(dataset, "PatientID"),
         patient_name=_text_value(dataset, "PatientName"),
         patient_birth_date=_text_value(dataset, "PatientBirthDate"),
@@ -134,6 +139,8 @@ def extract_metadata(
             default_fps=default_fps,
             fps_override=fps_override,
         ),
+        window_center=_float_value(dataset, "WindowCenter"),
+        window_width=_float_value(dataset, "WindowWidth"),
     )
 
 

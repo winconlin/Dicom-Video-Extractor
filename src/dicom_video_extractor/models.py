@@ -21,6 +21,15 @@ class DicomContentType(str, Enum):
     MOVING_IMAGE = "moving_image"
 
 
+class WindowPreset(str, Enum):
+    AUTO = "Auto"
+    CT_SOFT_TISSUE = "CT Soft Tissue"
+    CT_LUNG = "CT Lung"
+    CT_BONE = "CT Bone"
+    MR_BRAIN = "MR Brain"
+    US_GENERAL = "US General"
+
+
 class OverlayField(str, Enum):
     PATIENT_ID = "patient_id"
     PATIENT_NAME = "patient_name"
@@ -57,6 +66,7 @@ class ConversionOptions:
     clip_limit: float = 1.5
     default_fps: int = 15
     fps_override: float | None = None
+    window_preset: WindowPreset = WindowPreset.AUTO
     overlay_fields: tuple[OverlayField, ...] = ()
     anonymize_overlay: bool = False
 
@@ -68,6 +78,7 @@ class ConversionOptions:
 @dataclass(slots=True)
 class DicomMetadata:
     source_path: Path
+    modality: str = ""
     patient_id: str = ""
     patient_name: str = ""
     patient_birth_date: str = ""
@@ -79,9 +90,12 @@ class DicomMetadata:
     manufacturer: str = ""
     number_of_frames: int | None = None
     cine_rate: float | None = None
+    window_center: float | None = None
+    window_width: float | None = None
 
     def as_display_rows(self) -> list[tuple[str, str]]:
         return [
+            ("Modality", self.modality),
             ("Patient ID", self.patient_id),
             ("Patient Name", self.patient_name),
             ("Patient Sex", self.patient_sex),
@@ -96,6 +110,8 @@ class DicomMetadata:
                 "" if self.number_of_frames is None else str(self.number_of_frames),
             ),
             ("FPS", "" if self.cine_rate is None else f"{self.cine_rate:g}"),
+            ("Window Center", "" if self.window_center is None else f"{self.window_center:g}"),
+            ("Window Width", "" if self.window_width is None else f"{self.window_width:g}"),
         ]
 
 

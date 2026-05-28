@@ -8,13 +8,14 @@ import numpy as np
 
 from dicom_video_extractor.converter import (
     DicomConversionError,
+    apply_window_preset,
     build_output_path,
     build_output_paths_for_content,
     detect_content_type,
     normalize_pixel_array,
 )
 from dicom_video_extractor.metadata import infer_frame_rate_from_dataset
-from dicom_video_extractor.models import DicomContentType, OutputFormat
+from dicom_video_extractor.models import DicomContentType, DicomMetadata, OutputFormat, WindowPreset
 
 
 class NormalizePixelArrayTests(unittest.TestCase):
@@ -117,6 +118,41 @@ class ContentTypeDetectionTests(unittest.TestCase):
     def test_detects_single_image(self) -> None:
         frames = np.zeros((1, 10, 10), dtype=np.uint8)
         self.assertEqual(detect_content_type(None, frames), DicomContentType.SINGLE_IMAGE)
+
+
+class WindowPresetTests(unittest.TestCase):
+    def test_auto_uses_dataset_window_center_width(self) -> None:
+        metadata = DicomMetadata(
+            source_path=Path("scan.dcm"),
+            window_center=0.0,
+            window_width=1000.0,
+        )
+        image = np.array([[-1000, 0, 1000], [-500, 0, 500]], dtype=np.int16)
+
+        result = apply_window_preset(image, metadata, WindowPreset.AUTO)
+
+        self.assertEqual(result.shape, (1, 2, 3))
+        self.assertEqual(result.dtype, np.uint8)
+        self.assertGreater(int(result[0, 0, 1]), int(result[0, 0, 0]))
+        self.assertGreater(int(result[0, 0, 2]), int(result[0, 0, 1]))
+
+    def test_ct_soft_tissue_returns_uint8_for_grayscale(self) -> None:
+        metadata = DicomMetadata(source_path=Path("scan.dcm"), modality="CT")
+        image = np.array([[-200, 40, 500], [-100, 40, 300]], dtype=np.int16)
+
+        result = apply_window_preset(image, metadata, WindowPreset.CT_SOFT_TISSUE)
+
+        self.assertEqual(result.shape, (1, 2, 3))
+        self.assertEqual(result.dtype, np.uint8)
+
+    def test_color_image_is_not_windowed(self) -> None:
+        metadata = DicomMetadata(source_path=Path("scan.dcm"), modality="CT")
+        image = np.zeros((2, 4, 5, 3), dtype=np.uint16)
+
+        result = apply_window_preset(image, metadata, WindowPreset.CT_BONE)
+
+        self.assertEqual(result.shape, image.shape)
+        self.assertEqual(result.dtype, image.dtype)
 
 
 if __name__ == "__main__":
