@@ -30,6 +30,7 @@ from .models import (
     WindowPreset,
 )
 from .overlay import build_overlay_lines, ordered_overlay_fields
+from .settings import AppSettings, app_settings_path, default_app_settings, load_app_settings, save_app_settings
 from .ui import WillowbendApp, main
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "OverlayField",
     "OutputFormat",
     "WindowPreset",
+    "AppSettings",
     "apply_window_preset",
     "build_sidecar_paths",
     "build_queue_report_path",
@@ -61,7 +63,11 @@ __all__ = [
     "main",
     "normalize_pixel_array",
     "ordered_overlay_fields",
+    "app_settings_path",
+    "default_app_settings",
+    "load_app_settings",
     "read_dataset",
+    "save_app_settings",
     "WillowbendApp",
     "write_image",
     "write_metadata_sidecars",

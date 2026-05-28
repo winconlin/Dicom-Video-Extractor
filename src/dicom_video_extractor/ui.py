@@ -27,12 +27,19 @@ from .models import (
     WindowPreset,
 )
 from .overlay import ordered_overlay_fields
+from .settings import AppSettings, default_app_settings, load_app_settings, save_app_settings
 
 
 def _project_root() -> Path:
     if hasattr(sys, "_MEIPASS"):
         return Path(sys._MEIPASS)  # type: ignore[attr-defined]
     return Path(__file__).resolve().parents[2]
+
+
+def _safe_choice(raw_value: str, valid_values: tuple[str, ...], fallback: str) -> str:
+    if raw_value in valid_values:
+        return raw_value
+    return fallback
 
 
 def _frame_to_photoimage(frame: np.ndarray, max_width: int = 460, max_height: int = 320) -> tk.PhotoImage:
@@ -77,15 +84,30 @@ class WillowbendApp:
         self.queue_failures: list[ConversionFailure] = []
         self.queue_options: ConversionOptions | None = None
         self.queue_output_dir = ""
+        self.app_settings = load_app_settings()
+        safe_defaults = default_app_settings()
+        profile_choices = tuple(item.value for item in ExportProfile)
+        window_choices = tuple(item.value for item in WindowPreset)
+        safe_profile = _safe_choice(
+            self.app_settings.export_profile,
+            profile_choices,
+            safe_defaults.export_profile,
+        )
+        safe_window = _safe_choice(
+            self.app_settings.window_preset,
+            window_choices,
+            safe_defaults.window_preset,
+        )
+        self.last_input_dir = self.app_settings.last_input_dir or str(Path.cwd())
 
-        self.output_dir_var = tk.StringVar(value=str(Path.cwd()))
-        self.clip_limit_var = tk.StringVar(value="1.5")
-        self.fps_override_var = tk.StringVar(value="")
-        self.export_profile_var = tk.StringVar(value=ExportProfile.CUSTOM.value)
-        self.window_preset_var = tk.StringVar(value=WindowPreset.AUTO.value)
-        self.export_sidecars_var = tk.BooleanVar(value=True)
-        self.overlay_enabled_var = tk.BooleanVar(value=False)
-        self.anonymize_overlay_var = tk.BooleanVar(value=False)
+        self.output_dir_var = tk.StringVar(value=self.app_settings.output_dir or str(Path.cwd()))
+        self.clip_limit_var = tk.StringVar(value=self.app_settings.clip_limit)
+        self.fps_override_var = tk.StringVar(value=self.app_settings.fps_override)
+        self.export_profile_var = tk.StringVar(value=safe_profile)
+        self.window_preset_var = tk.StringVar(value=safe_window)
+        self.export_sidecars_var = tk.BooleanVar(value=self.app_settings.export_sidecars)
+        self.overlay_enabled_var = tk.BooleanVar(value=self.app_settings.overlay_enabled)
+        self.anonymize_overlay_var = tk.BooleanVar(value=self.app_settings.anonymize_overlay)
         self.status_var = tk.StringVar(value="Select one or more DICOM files to begin.")
         self.file_count_var = tk.StringVar(value="0")
         self.preview_mode_var = tk.StringVar(value="Preview: no file selected")
@@ -105,14 +127,16 @@ class WillowbendApp:
         self.queue_progress_bar: ttk.Progressbar | None = None
         self.anonymize_overlay_button: ttk.Checkbutton | None = None
         self.overlay_field_buttons: dict[OverlayField, ttk.Checkbutton] = {}
+        available_overlay_names = {field.value for field in ordered_overlay_fields()}
+        loaded_overlay_names = {
+            name for name in self.app_settings.overlay_fields if name in available_overlay_names
+        }
+        if not loaded_overlay_names:
+            loaded_overlay_names = set(safe_defaults.overlay_fields)
+
         self.overlay_field_vars = {
             field: tk.BooleanVar(
-                value=field
-                in (
-                    OverlayField.PATIENT_NAME,
-                    OverlayField.STUDY_DATE,
-                    OverlayField.FPS,
-                )
+                value=field.value in loaded_overlay_names
             )
             for field in ordered_overlay_fields()
         }
@@ -418,7 +442,33 @@ class WillowbendApp:
 
     def _on_close(self) -> None:
         self.pause_preview()
+        self._save_settings()
         self.root.destroy()
+
+    def _current_app_settings(self) -> AppSettings:
+        selected_overlay_fields = [
+            field.value
+            for field, variable in self.overlay_field_vars.items()
+            if variable.get()
+        ]
+        return AppSettings(
+            output_dir=self.output_dir_var.get().strip() or str(Path.cwd()),
+            last_input_dir=self.last_input_dir or str(Path.cwd()),
+            clip_limit=self.clip_limit_var.get(),
+            fps_override=self.fps_override_var.get(),
+            export_profile=self.export_profile_var.get(),
+            window_preset=self.window_preset_var.get(),
+            export_sidecars=self.export_sidecars_var.get(),
+            overlay_enabled=self.overlay_enabled_var.get(),
+            anonymize_overlay=self.anonymize_overlay_var.get(),
+            overlay_fields=selected_overlay_fields,
+        )
+
+    def _save_settings(self) -> None:
+        try:
+            save_app_settings(self._current_app_settings())
+        except Exception:
+            pass
 
     def _set_button_state(self, button: ttk.Button | None, *, enabled: bool) -> None:
         if button is None:
@@ -514,6 +564,7 @@ class WillowbendApp:
             return
         paths = filedialog.askopenfilenames(
             title="Choose DICOM files",
+            initialdir=self.last_input_dir,
             filetypes=(
                 ("All files (including extensionless)", "*"),
                 ("DICOM files", "*.dcm *.dicom"),
@@ -524,6 +575,7 @@ class WillowbendApp:
             return
 
         raw_files = [Path(item) for item in paths]
+        self.last_input_dir = str(raw_files[0].parent)
         self._apply_dicom_selection(
             raw_files,
             output_dir_hint=raw_files[0].parent if raw_files else None,
@@ -534,11 +586,15 @@ class WillowbendApp:
         if self.queue_running:
             messagebox.showinfo("Queue running", "Pause or wait for the queue to finish before changing files.")
             return
-        folder = filedialog.askdirectory(title="Choose folder with DICOM files")
+        folder = filedialog.askdirectory(
+            title="Choose folder with DICOM files",
+            initialdir=self.last_input_dir,
+        )
         if not folder:
             return
 
         root_dir = Path(folder)
+        self.last_input_dir = str(root_dir)
         candidates = [path for path in root_dir.rglob("*") if path.is_file()]
         if not candidates:
             messagebox.showwarning("Folder is empty", "No files were found in the selected folder.")
@@ -560,6 +616,7 @@ class WillowbendApp:
 
         dicomdir = filedialog.askopenfilename(
             title="Choose DICOMDIR file",
+            initialdir=self.last_input_dir,
             filetypes=(
                 ("DICOMDIR", "DICOMDIR *.dicomdir *.DICOMDIR"),
                 ("All files", "*"),
@@ -569,6 +626,7 @@ class WillowbendApp:
             return
 
         dicomdir_path = Path(dicomdir)
+        self.last_input_dir = str(dicomdir_path.parent)
         try:
             series = parse_dicomdir_series(dicomdir_path)
         except Exception as exc:
@@ -720,7 +778,10 @@ class WillowbendApp:
         )
 
     def choose_output_folder(self) -> None:
-        folder = filedialog.askdirectory(title="Choose output folder")
+        folder = filedialog.askdirectory(
+            title="Choose output folder",
+            initialdir=self.output_dir_var.get().strip() or self.last_input_dir,
+        )
         if folder:
             self.output_dir_var.set(folder)
 
