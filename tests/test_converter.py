@@ -6,9 +6,15 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from dicom_video_extractor.converter import DicomConversionError, build_output_path, normalize_pixel_array
+from dicom_video_extractor.converter import (
+    DicomConversionError,
+    build_output_path,
+    build_output_paths_for_content,
+    detect_content_type,
+    normalize_pixel_array,
+)
 from dicom_video_extractor.metadata import infer_frame_rate_from_dataset
-from dicom_video_extractor.models import OutputFormat
+from dicom_video_extractor.models import DicomContentType, OutputFormat
 
 
 class NormalizePixelArrayTests(unittest.TestCase):
@@ -81,6 +87,36 @@ class OutputPathTests(unittest.TestCase):
     def test_output_path_uses_selected_extension(self) -> None:
         output_path = build_output_path("scan.dcm", Path("out"), OutputFormat.MP4)
         self.assertEqual(output_path, Path("out") / "scan.mp4")
+
+    def test_build_output_paths_for_moving_images(self) -> None:
+        output_paths = build_output_paths_for_content(
+            "scan.dcm",
+            Path("out"),
+            DicomContentType.MOVING_IMAGE,
+        )
+        self.assertEqual(output_paths, (Path("out") / "scan.mp4", Path("out") / "scan.avi"))
+
+    def test_build_output_paths_for_single_images(self) -> None:
+        output_paths = build_output_paths_for_content(
+            "scan",
+            Path("out"),
+            DicomContentType.SINGLE_IMAGE,
+        )
+        self.assertEqual(output_paths, (Path("out") / "scan.png", Path("out") / "scan.jpg"))
+
+
+class ContentTypeDetectionTests(unittest.TestCase):
+    def test_detects_moving_image_from_metadata(self) -> None:
+        frames = np.zeros((1, 10, 10), dtype=np.uint8)
+        self.assertEqual(detect_content_type(5, frames), DicomContentType.MOVING_IMAGE)
+
+    def test_detects_moving_image_from_frame_count_when_metadata_missing(self) -> None:
+        frames = np.zeros((3, 10, 10), dtype=np.uint8)
+        self.assertEqual(detect_content_type(None, frames), DicomContentType.MOVING_IMAGE)
+
+    def test_detects_single_image(self) -> None:
+        frames = np.zeros((1, 10, 10), dtype=np.uint8)
+        self.assertEqual(detect_content_type(None, frames), DicomContentType.SINGLE_IMAGE)
 
 
 if __name__ == "__main__":

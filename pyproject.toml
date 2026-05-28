@@ -23,6 +23,14 @@ dependencies = [
 build = [
   "pyinstaller>=6.0",
 ]
+decoders = [
+  "pylibjpeg>=2.0",
+  "pylibjpeg-libjpeg>=2.3",
+  "pylibjpeg-openjpeg>=2.4",
+  "pylibjpeg-rle>=2.2",
+  "pyjpegls>=1.4",
+  "python-gdcm>=3.0",
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
 
-from .metadata import extract_metadata
-from .models import ConversionFailure, ConversionOptions, ConversionResult, OutputFormat
+from .metadata import extract_metadata, read_dataset
+from .models import (
+    ConversionFailure,
+    ConversionOptions,
+    ConversionResult,
+    DicomContentType,
+    OutputFormat,
+)
 from .overlay import build_overlay_lines
 
 try:
@@ -19,6 +26,32 @@ class DicomConversionError(RuntimeError):
     pass
 
 
+def _installed(module_name: str) -> bool:
+    return importlib.util.find_spec(module_name) is not None
+
+
+def _decoder_install_hint() -> str:
+    missing: list[str] = []
+    if not _installed("pylibjpeg"):
+        missing.append("pylibjpeg")
+    if not _installed("pylibjpeg_libjpeg"):
+        missing.append("pylibjpeg-libjpeg")
+    if not _installed("pylibjpeg_openjpeg"):
+        missing.append("pylibjpeg-openjpeg")
+    if not _installed("pylibjpeg_rle"):
+        missing.append("pylibjpeg-rle")
+    if not _installed("gdcm"):
+        missing.append("python-gdcm")
+    if not _installed("PIL"):
+        missing.append("Pillow")
+
+    if not missing:
+        return (
+            " Install another pixel-data decoder backend if this transfer syntax is still unsupported."
+        )
+    return " Install missing decoder backends: " + ", ".join(missing) + "."
+
+
 def _require_cv2() -> Any:
     try:
         import cv2
@@ -29,14 +62,15 @@ def _require_cv2() -> Any:
     return cv2
 
 
-def _require_dcmread() -> Any:
-    try:
-        from pydicom import dcmread
-    except ImportError as exc:  # pragma: no cover - depends on local environment
-        raise DicomConversionError(
-            "pydicom is not installed. Install project dependencies before converting files."
-        ) from exc
-    return dcmread
+def _invert_monochrome1_if_needed(dataset: Any, pixel_array: np.ndarray) -> np.ndarray:
+    photometric = str(getattr(dataset, "PhotometricInterpretation", "")).upper()
+    if photometric != "MONOCHROME1":
+        return pixel_array
+    if not np.issubdtype(pixel_array.dtype, np.number):
+        return pixel_array
+    min_value = np.min(pixel_array)
+    max_value = np.max(pixel_array)
+    return (max_value + min_value) - pixel_array
 
 
 def load_dicom_frames(path: str | Path) -> np.ndarray:
@@ -51,23 +85,16 @@ def load_dicom_frames(path: str | Path) -> np.ndarray:
             errors.append(f"SimpleITK: {exc}")
 
     try:
-        dcmread = _require_dcmread()
-        dataset = dcmread(str(source_path), force=True)
-        return np.asarray(dataset.pixel_array)
+        dataset = read_dataset(source_path, stop_before_pixels=False)
+        return _invert_monochrome1_if_needed(dataset, np.asarray(dataset.pixel_array))
     except Exception as exc:
         errors.append(f"pydicom: {exc}")
 
     joined_errors = "; ".join(errors) if errors else "Unknown DICOM loading error."
     decoder_hint = ""
     lowered_errors = joined_errors.lower()
-    if any(
-        keyword in lowered_errors
-        for keyword in ("transfer syntax", "decoder", "decompress", "compressed")
-    ):
-        decoder_hint = (
-            " Install an appropriate pixel data decoder such as GDCM or pylibjpeg "
-            "for compressed transfer syntaxes."
-        )
+    if any(keyword in lowered_errors for keyword in ("transfer syntax", "decoder", "decompress", "compressed")):
+        decoder_hint = _decoder_install_hint()
     raise DicomConversionError(
         f"Could not decode pixel data from {source_path}: {joined_errors}.{decoder_hint}"
     )
@@ -233,6 +260,32 @@ def build_output_path(
     return directory / f"{input_path.stem}{output_format.suffix}"
 
 
+def build_output_paths_for_content(
+    source_path: str | Path,
+    output_dir: str | Path,
+    content_type: DicomContentType,
+) -> tuple[Path, ...]:
+    input_path = Path(source_path)
+    directory = Path(output_dir)
+    if content_type is DicomContentType.MOVING_IMAGE:
+        return (
+            directory / f"{input_path.stem}.mp4",
+            directory / f"{input_path.stem}.avi",
+        )
+    return (
+        directory / f"{input_path.stem}.png",
+        directory / f"{input_path.stem}.jpg",
+    )
+
+
+def detect_content_type(metadata_number_of_frames: int | None, frames: np.ndarray) -> DicomContentType:
+    if metadata_number_of_frames is not None and metadata_number_of_frames > 1:
+        return DicomContentType.MOVING_IMAGE
+    if int(frames.shape[0]) > 1:
+        return DicomContentType.MOVING_IMAGE
+    return DicomContentType.SINGLE_IMAGE
+
+
 def _video_codec(output_format: OutputFormat) -> int:
     cv2 = _require_cv2()
     if output_format is OutputFormat.MP4:
@@ -245,6 +298,15 @@ def _to_bgr_frame(frame: np.ndarray) -> np.ndarray:
     if frame.ndim == 2:
         return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
     return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+
+def write_image(frame: np.ndarray, output_path: str | Path) -> None:
+    cv2 = _require_cv2()
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    image = _to_bgr_frame(frame) if frame.ndim == 3 else frame
+    if not cv2.imwrite(str(destination), image):
+        raise DicomConversionError(f"OpenCV could not write output image {destination}.")
 
 
 def write_video(
@@ -294,6 +356,7 @@ def convert_file(
     )
     raw_frames = load_dicom_frames(source_path)
     normalized_frames = normalize_pixel_array(raw_frames)
+    content_type = detect_content_type(metadata.number_of_frames, normalized_frames)
     enhanced_frames = enhance_frames(normalized_frames, resolved_options.clip_limit)
     overlay_lines = build_overlay_lines(
         metadata,
@@ -301,24 +364,34 @@ def convert_file(
         anonymize=resolved_options.anonymize_overlay,
     )
     final_frames = overlay_metadata_on_frames(enhanced_frames, overlay_lines)
-    output_path = build_output_path(
-        source_path, output_dir, resolved_options.output_format
-    )
+    output_paths = build_output_paths_for_content(source_path, output_dir, content_type)
 
-    fps = metadata.cine_rate or float(resolved_options.default_fps)
-    write_video(
-        final_frames,
-        output_path,
-        fps=fps,
-        output_format=resolved_options.output_format,
-    )
+    fps: float | None = None
+    if content_type is DicomContentType.MOVING_IMAGE:
+        fps = metadata.cine_rate or float(resolved_options.default_fps)
+        write_video(
+            final_frames,
+            output_paths[0],
+            fps=fps,
+            output_format=OutputFormat.MP4,
+        )
+        write_video(
+            final_frames,
+            output_paths[1],
+            fps=fps,
+            output_format=OutputFormat.AVI,
+        )
+    else:
+        first_frame = final_frames[0]
+        write_image(first_frame, output_paths[0])
+        write_image(first_frame, output_paths[1])
 
     return ConversionResult(
         source_path=Path(source_path),
-        output_path=output_path,
+        output_paths=output_paths,
         frame_count=int(final_frames.shape[0]),
         fps=fps,
-        output_format=resolved_options.output_format,
+        content_type=content_type,
     )
 
 
