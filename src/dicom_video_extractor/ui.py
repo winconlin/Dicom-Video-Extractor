@@ -8,9 +8,9 @@ from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
 
-from .converter import convert_files, detect_content_type, load_dicom_frames, normalize_pixel_array
+from .converter import convert_file, detect_content_type, load_dicom_frames, normalize_pixel_array
 from .metadata import extract_metadata, read_dataset
-from .models import ConversionOptions, DicomContentType, OverlayField
+from .models import ConversionFailure, ConversionOptions, ConversionResult, DicomContentType, OverlayField
 from .overlay import ordered_overlay_fields
 
 
@@ -55,6 +55,13 @@ class WillowbendApp:
         self.preview_frame_index = 0
         self.preview_fps = 15.0
         self.preview_content_type = DicomContentType.SINGLE_IMAGE
+        self.queue_running = False
+        self.queue_paused = False
+        self.queue_index = 0
+        self.queue_results: list[ConversionResult] = []
+        self.queue_failures: list[ConversionFailure] = []
+        self.queue_options: ConversionOptions | None = None
+        self.queue_output_dir = ""
 
         self.output_dir_var = tk.StringVar(value=str(Path.cwd()))
         self.clip_limit_var = tk.StringVar(value="1.5")
@@ -64,6 +71,19 @@ class WillowbendApp:
         self.status_var = tk.StringVar(value="Select one or more DICOM files to begin.")
         self.file_count_var = tk.StringVar(value="0")
         self.preview_mode_var = tk.StringVar(value="Preview: no file selected")
+        self.queue_progress_value_var = tk.DoubleVar(value=0.0)
+        self.queue_progress_text_var = tk.StringVar(value="Queue progress: 0/0")
+        self.queue_current_file_var = tk.StringVar(value="Current file: -")
+        self.select_files_button: ttk.Button | None = None
+        self.select_folder_button: ttk.Button | None = None
+        self.refresh_button: ttk.Button | None = None
+        self.convert_button: ttk.Button | None = None
+        self.pause_queue_button: ttk.Button | None = None
+        self.resume_queue_button: ttk.Button | None = None
+        self.move_up_button: ttk.Button | None = None
+        self.move_down_button: ttk.Button | None = None
+        self.prioritize_button: ttk.Button | None = None
+        self.queue_progress_bar: ttk.Progressbar | None = None
         self.overlay_field_vars = {
             field: tk.BooleanVar(
                 value=field
@@ -91,6 +111,7 @@ class WillowbendApp:
 
         self._build_window()
         self._build_layout()
+        self._set_queue_ui_state()
         self._apply_icon()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -141,7 +162,7 @@ class WillowbendApp:
         files_box.grid(row=2, column=1, sticky="nsew")
         files_box.columnconfigure(0, weight=1)
         files_box.rowconfigure(0, weight=1)
-        files_box.rowconfigure(3, weight=1)
+        files_box.rowconfigure(2, weight=1)
 
         self.file_list = tk.Listbox(files_box, height=10)
         self.file_list.grid(row=0, column=0, sticky="nsew")
@@ -157,6 +178,17 @@ class WillowbendApp:
         ttk.Button(preview_controls, text="Play", command=self.play_preview).grid(row=0, column=0)
         ttk.Button(preview_controls, text="Pause", command=self.pause_preview).grid(row=0, column=1, padx=(8, 0))
         ttk.Button(preview_controls, text="Restart", command=self.restart_preview).grid(row=0, column=2, padx=(8, 0))
+
+        queue_controls = ttk.Frame(files_box)
+        queue_controls.grid(row=4, column=0, sticky="w", pady=(8, 0))
+        self.move_up_button = ttk.Button(queue_controls, text="Move Up", command=self.move_selected_up)
+        self.move_up_button.grid(row=0, column=0)
+        self.move_down_button = ttk.Button(queue_controls, text="Move Down", command=self.move_selected_down)
+        self.move_down_button.grid(row=0, column=1, padx=(8, 0))
+        self.prioritize_button = ttk.Button(
+            queue_controls, text="Prioritize Selected", command=self.prioritize_selected_file
+        )
+        self.prioritize_button.grid(row=0, column=2, padx=(8, 0))
 
         controls = ttk.LabelFrame(frame, text="Conversion options", padding=12)
         controls.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(16, 0))
@@ -233,35 +265,69 @@ class WillowbendApp:
 
         actions = ttk.Frame(frame)
         actions.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(16, 0))
-        actions.columnconfigure(3, weight=1)
+        actions.columnconfigure(5, weight=1)
 
-        ttk.Button(
+        self.select_files_button = ttk.Button(
             actions, text="Select DICOM files...", command=self.choose_files
-        ).grid(row=0, column=0)
-        ttk.Button(
+        )
+        self.select_files_button.grid(row=0, column=0)
+        self.select_folder_button = ttk.Button(
             actions, text="Select DICOM folder...", command=self.choose_folder
-        ).grid(
+        )
+        self.select_folder_button.grid(
             row=0,
             column=1,
             padx=(8, 0),
         )
-        ttk.Button(
+        self.refresh_button = ttk.Button(
             actions, text="Refresh metadata", command=self.refresh_metadata
-        ).grid(
+        )
+        self.refresh_button.grid(
             row=0,
             column=2,
             padx=(8, 0),
         )
-        ttk.Label(actions, text="Files:").grid(row=0, column=4, sticky="e")
-        ttk.Label(actions, textvariable=self.file_count_var).grid(
-            row=0, column=5, sticky="w", padx=(6, 0)
+        self.convert_button = ttk.Button(actions, text="Convert Queue", command=self.convert)
+        self.convert_button.grid(row=0, column=3, padx=(12, 0))
+        self.pause_queue_button = ttk.Button(
+            actions,
+            text="Pause Queue",
+            command=self.pause_conversion_queue,
+            state="disabled",
         )
-        ttk.Button(actions, text="Convert", command=self.convert).grid(
-            row=0, column=6, padx=(12, 0)
+        self.pause_queue_button.grid(row=0, column=4, padx=(8, 0))
+        self.resume_queue_button = ttk.Button(
+            actions,
+            text="Resume Queue",
+            command=self.resume_conversion_queue,
+            state="disabled",
+        )
+        self.resume_queue_button.grid(row=0, column=5, padx=(8, 0))
+        ttk.Label(actions, text="Files:").grid(row=0, column=6, sticky="e")
+        ttk.Label(actions, textvariable=self.file_count_var).grid(
+            row=0, column=7, sticky="w", padx=(6, 0)
         )
 
         status = ttk.Label(frame, textvariable=self.status_var)
         status.grid(row=5, column=0, columnspan=2, sticky="w", pady=(12, 0))
+
+        progress_frame = ttk.Frame(frame)
+        progress_frame.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        progress_frame.columnconfigure(0, weight=1)
+        self.queue_progress_bar = ttk.Progressbar(
+            progress_frame,
+            orient="horizontal",
+            mode="determinate",
+            maximum=1,
+            variable=self.queue_progress_value_var,
+        )
+        self.queue_progress_bar.grid(row=0, column=0, sticky="ew")
+        ttk.Label(progress_frame, textvariable=self.queue_progress_text_var).grid(
+            row=1, column=0, sticky="w", pady=(4, 0)
+        )
+        ttk.Label(progress_frame, textvariable=self.queue_current_file_var).grid(
+            row=2, column=0, sticky="w", pady=(2, 0)
+        )
 
     def _apply_icon(self) -> None:
         icon_path = _project_root() / "Original" / "Heart.ico"
@@ -274,6 +340,78 @@ class WillowbendApp:
     def _on_close(self) -> None:
         self.pause_preview()
         self.root.destroy()
+
+    def _set_button_state(self, button: ttk.Button | None, *, enabled: bool) -> None:
+        if button is None:
+            return
+        button.configure(state="normal" if enabled else "disabled")
+
+    def _set_queue_ui_state(self) -> None:
+        busy = self.queue_running
+        paused = self.queue_paused
+        self._set_button_state(self.select_files_button, enabled=not busy)
+        self._set_button_state(self.select_folder_button, enabled=not busy)
+        self._set_button_state(self.refresh_button, enabled=not busy)
+        self._set_button_state(self.move_up_button, enabled=not busy)
+        self._set_button_state(self.move_down_button, enabled=not busy)
+        self._set_button_state(self.prioritize_button, enabled=not busy)
+        self._set_button_state(self.convert_button, enabled=not busy)
+        self._set_button_state(self.pause_queue_button, enabled=busy and not paused)
+        self._set_button_state(self.resume_queue_button, enabled=busy and paused)
+        self.file_list.configure(state="disabled" if busy else "normal")
+
+    def _selected_list_index(self) -> int | None:
+        selection = self.file_list.curselection()
+        if not selection:
+            return None
+        return int(selection[0])
+
+    def _restore_selection(self, index: int) -> None:
+        if not self.selected_files:
+            return
+        safe_index = max(0, min(index, len(self.selected_files) - 1))
+        self.file_list.selection_clear(0, tk.END)
+        self.file_list.selection_set(safe_index)
+        self.file_list.activate(safe_index)
+        self.file_list.see(safe_index)
+
+    def _move_selected_file(self, target_index: int) -> None:
+        if self.queue_running:
+            return
+        source_index = self._selected_list_index()
+        if source_index is None:
+            return
+        if source_index < 0 or source_index >= len(self.selected_files):
+            return
+
+        clamped_target = max(0, min(target_index, len(self.selected_files) - 1))
+        if source_index == clamped_target:
+            return
+
+        moved = self.selected_files.pop(source_index)
+        self.selected_files.insert(clamped_target, moved)
+        self.file_list.delete(0, tk.END)
+        for path in self.selected_files:
+            self.file_list.insert(tk.END, path.name)
+
+        self._restore_selection(clamped_target)
+        self.refresh_metadata()
+        self._load_preview_for_index(clamped_target)
+
+    def move_selected_up(self) -> None:
+        selected = self._selected_list_index()
+        if selected is None:
+            return
+        self._move_selected_file(selected - 1)
+
+    def move_selected_down(self) -> None:
+        selected = self._selected_list_index()
+        if selected is None:
+            return
+        self._move_selected_file(selected + 1)
+
+    def prioritize_selected_file(self) -> None:
+        self._move_selected_file(0)
 
     def _is_dicom_file(self, path: Path) -> bool:
         if not path.is_file():
@@ -291,6 +429,9 @@ class WillowbendApp:
         return False
 
     def choose_files(self) -> None:
+        if self.queue_running:
+            messagebox.showinfo("Queue running", "Pause or wait for the queue to finish before changing files.")
+            return
         paths = filedialog.askopenfilenames(
             title="Choose DICOM files",
             filetypes=(
@@ -310,6 +451,9 @@ class WillowbendApp:
         )
 
     def choose_folder(self) -> None:
+        if self.queue_running:
+            messagebox.showinfo("Queue running", "Pause or wait for the queue to finish before changing files.")
+            return
         folder = filedialog.askdirectory(title="Choose folder with DICOM files")
         if not folder:
             return
@@ -336,6 +480,8 @@ class WillowbendApp:
         output_dir_hint: Path | None,
         source_label: str,
     ) -> None:
+        if self.queue_running:
+            return
         dicom_files: list[Path] = []
         skipped_count = 0
 
@@ -541,6 +687,10 @@ class WillowbendApp:
             self.play_preview()
 
     def convert(self) -> None:
+        if self.queue_running:
+            messagebox.showinfo("Queue running", "A conversion queue is already running.")
+            return
+
         if not self.selected_files:
             messagebox.showwarning(
                 "No files selected", "Choose one or more DICOM files first."
@@ -558,13 +708,105 @@ class WillowbendApp:
             messagebox.showwarning("Invalid option", str(exc))
             return
 
-        self.status_var.set("Converting files...")
+        total = len(self.selected_files)
+        self.queue_running = True
+        self.queue_paused = False
+        self.queue_index = 0
+        self.queue_results = []
+        self.queue_failures = []
+        self.queue_options = options
+        self.queue_output_dir = output_dir
+        self.queue_progress_value_var.set(0.0)
+        self.queue_progress_text_var.set(f"Queue progress: 0/{total}")
+        self.queue_current_file_var.set("Current file: queue started")
+        if self.queue_progress_bar is not None:
+            self.queue_progress_bar.configure(maximum=max(total, 1))
+        self._set_queue_ui_state()
+        self.status_var.set(f"Queue started with {total} file(s).")
+        self.root.update_idletasks()
+        self.root.after(5, self._process_queue_step)
+
+    def pause_conversion_queue(self) -> None:
+        if not self.queue_running:
+            return
+        if self.queue_paused:
+            return
+        self.queue_paused = True
+        self.status_var.set("Queue paused after current file.")
+        self._set_queue_ui_state()
+
+    def resume_conversion_queue(self) -> None:
+        if not self.queue_running:
+            return
+        if not self.queue_paused:
+            return
+        self.queue_paused = False
+        self.status_var.set("Queue resumed.")
+        self._set_queue_ui_state()
+        self.root.after(5, self._process_queue_step)
+
+    def _process_queue_step(self) -> None:
+        if not self.queue_running:
+            return
+        if self.queue_paused:
+            return
+
+        total = len(self.selected_files)
+        if self.queue_index >= total:
+            self._finish_conversion_queue()
+            return
+
+        if self.queue_options is None:
+            self.queue_running = False
+            self.queue_paused = False
+            self._set_queue_ui_state()
+            self.status_var.set("Queue stopped due to missing conversion options.")
+            return
+
+        source_path = self.selected_files[self.queue_index]
+        self.queue_current_file_var.set(f"Current file: {source_path.name}")
+        self.status_var.set(
+            f"Converting {self.queue_index + 1}/{total}: {source_path.name}"
+        )
         self.root.update_idletasks()
 
-        results, failures = convert_files(self.selected_files, output_dir, options)
+        try:
+            result = convert_file(source_path, self.queue_output_dir, self.queue_options)
+            self.queue_results.append(result)
+        except Exception as exc:
+            self.queue_failures.append(
+                ConversionFailure(source_path=source_path, message=str(exc))
+            )
 
-        moving_count = sum(1 for result in results if result.content_type is DicomContentType.MOVING_IMAGE)
+        self.queue_index += 1
+        self.queue_progress_value_var.set(float(self.queue_index))
+        self.queue_progress_text_var.set(f"Queue progress: {self.queue_index}/{total}")
+
+        if self.queue_index >= total:
+            self._finish_conversion_queue()
+            return
+
+        if self.queue_paused:
+            self.status_var.set("Queue paused.")
+            self._set_queue_ui_state()
+            return
+
+        self.root.after(5, self._process_queue_step)
+
+    def _finish_conversion_queue(self) -> None:
+        self.queue_running = False
+        self.queue_paused = False
+        self._set_queue_ui_state()
+
+        results = self.queue_results
+        failures = self.queue_failures
+        moving_count = sum(
+            1
+            for result in results
+            if result.content_type is DicomContentType.MOVING_IMAGE
+        )
         image_count = len(results) - moving_count
+        self.queue_current_file_var.set("Current file: done")
 
         if results and not failures:
             messagebox.showinfo(
@@ -575,7 +817,7 @@ class WillowbendApp:
                     f"- Single image DICOMs: {image_count} (each exported as PNG + JPG)"
                 ),
             )
-            self.status_var.set(f"Converted {len(results)} file(s) successfully.")
+            self.status_var.set(f"Queue complete: converted {len(results)} file(s).")
             return
 
         if results and failures:
@@ -593,7 +835,7 @@ class WillowbendApp:
                 ),
             )
             self.status_var.set(
-                f"Converted {len(results)} file(s), {len(failures)} failed."
+                f"Queue complete: {len(results)} converted, {len(failures)} failed."
             )
             return
 
@@ -604,7 +846,7 @@ class WillowbendApp:
         messagebox.showerror(
             "Conversion failed", failure_text or "Unknown conversion error."
         )
-        self.status_var.set("Conversion failed.")
+        self.status_var.set("Queue failed: all files failed.")
 
 
 def main() -> None:
