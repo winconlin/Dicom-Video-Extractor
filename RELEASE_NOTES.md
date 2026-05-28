@@ -1,39 +1,77 @@
-# Dicom Video Extractor v0.2.0
+# Dicom Video Extractor v0.3.0
 
 ## Deutsch
 
-Diese Version macht aus dem früheren WillowbendDICOM-Projekt einen deutlich einfacher nutzbaren und besser wartbaren Stand.
+### Highlights
 
-### Neu in dieser Version
+- Vorschau direkt in der App:
+  - Bewegtbild-DICOMs als laufende Vorschau
+  - Einzelbild-DICOMs als Standbild-Vorschau
+- Automatische DICOM-Erkennung:
+  - Bewegtbild -> Export als MP4 + AVI
+  - Einzelbild -> Export als PNG + JPG
+- Deutlich verbesserter Import:
+  - rekursiver Ordner-Import
+  - DICOMDIR-Import mit Serienauswahl
+  - Unterstützung für DICOM-Dateien ohne Dateiendung
+- Erweiterte Queue-Funktionen:
+  - Pause, Resume, Cancel
+  - Priorisierung (Move Up/Down, Prioritize Selected)
+  - fehlgeschlagene Dateien wieder direkt laden (`Load Failed`)
+- Exportqualität und Nachvollziehbarkeit:
+  - Window-Presets (CT/MR/US)
+  - Sidecars pro Datei (`.json` + `.csv`)
+  - Queue-Report pro Lauf (`conversion-report-YYYYMMDD-HHMMSS.json`)
+  - Export-Profile (`Custom`, `Clinic Standard`, `Research`, `Anonymized`)
+- Komfort:
+  - Einstellungen bleiben zwischen App-Starts erhalten
+  - Schnellzugriff auf Ausgabeordner und letzten Report
 
-- automatische Release-Builds für Windows, macOS und Linux
-- deutlich vereinfachte README mit deutscher und englischer Anleitung
-- robustere DICOM-Verarbeitung für zusätzliche Pixel-Layouts und bessere FPS-Ermittlung
-- optionale Metadaten-Einblendung direkt im exportierten Video
-- optionale Anonymisierung für eingeblendete personenbezogene Daten
+### Artefakte
+
+- `Dicom-Video-Extractor-windows-x64.zip`
+- `Dicom-Video-Extractor-macos.zip`
+- `Dicom-Video-Extractor-linux-x64.tar.gz`
 
 ### Hinweise
 
-- Windows wird als ZIP mit ausführbarer `.exe` bereitgestellt
-- macOS und Linux werden als Archiv bereitgestellt
-- macOS-Builds sind derzeit noch nicht signiert oder notariell beglaubigt
-- bestimmte komprimierte DICOM-Dateien benötigen weiterhin zusätzliche Decoder wie `GDCM` oder `pylibjpeg`
+- macOS-Builds sind derzeit nicht signiert/notarisiert.
+- Einige komprimierte DICOM-Dateien benötigen weiterhin Decoder wie `GDCM` oder `pylibjpeg`.
 
 ## English
 
-This release turns the older WillowbendDICOM project into a much easier-to-use and more maintainable distribution.
+### Highlights
 
-### Included in this release
+- In-app preview:
+  - moving-image DICOM playback
+  - single-image DICOM still preview
+- Automatic DICOM content detection:
+  - moving image -> MP4 + AVI
+  - single image -> PNG + JPG
+- Improved import workflows:
+  - recursive folder import
+  - DICOMDIR import with series selection
+  - extensionless DICOM file support
+- Extended queue controls:
+  - pause, resume, cancel
+  - prioritization (move up/down, prioritize selected)
+  - quick failed-item reload (`Load Failed`)
+- Better export traceability:
+  - CT/MR/US window presets
+  - per-file sidecars (`.json` + `.csv`)
+  - per-run queue report (`conversion-report-YYYYMMDD-HHMMSS.json`)
+  - export profiles (`Custom`, `Clinic Standard`, `Research`, `Anonymized`)
+- Usability:
+  - persistent settings across app restarts
+  - quick open actions for output folder and latest report
 
-- automated release builds for Windows, macOS, and Linux
-- a much simpler README with German and English instructions
-- more robust DICOM handling for additional pixel layouts and better FPS inference
-- optional metadata overlays burned directly into exported videos
-- optional anonymization for overlaid personal data
+### Artifacts
+
+- `Dicom-Video-Extractor-windows-x64.zip`
+- `Dicom-Video-Extractor-macos.zip`
+- `Dicom-Video-Extractor-linux-x64.tar.gz`
 
 ### Notes
 
-- Windows is shipped as a ZIP containing the executable `.exe`
-- macOS and Linux are shipped as archives
-- macOS builds are not yet signed or notarized
-- some compressed DICOM files still require additional decoders such as `GDCM` or `pylibjpeg`
+- macOS builds are currently unsigned / not notarized.
+- Some compressed DICOM files still require extra decoder backends such as `GDCM` or `pylibjpeg`.

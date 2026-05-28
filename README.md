@@ -1,188 +1,146 @@
 # Dicom Video Extractor
 
-Modernized standalone DICOM-to-video converter based on the upstream project
-[`YangChuan80/WillowbendDICOM`](https://github.com/YangChuan80/WillowbendDICOM).
+Modernized standalone DICOM converter based on [`YangChuan80/WillowbendDICOM`](https://github.com/YangChuan80/WillowbendDICOM).
 
 ## Deutsch
 
-### Was dieses Programm macht
+### Was die App kann
 
-Dieses Programm liest DICOM-Dateien ein und exportiert daraus Videos.
+- DICOM-Dateien automatisch als **Einzelbild** oder **Bewegtbild** erkennen
+- In-App-Vorschau:
+  - Einzelbild als Standbild
+  - Bewegtbild als laufende Vorschau
+- Automatischer Export je nach Inhalt:
+  - Bewegtbild-DICOM -> `MP4` + `AVI`
+  - Einzelbild-DICOM -> `PNG` + `JPG`
+- DICOM-Import:
+  - Dateiauswahl (inkl. Dateien ohne Endung)
+  - rekursiver Ordner-Import
+  - `DICOMDIR` mit Serienauswahl
+- Queue-Workflow:
+  - Pause / Resume / Cancel
+  - Priorisierung (Move Up, Move Down, Prioritize Selected)
+  - fehlgeschlagene Dateien direkt erneut laden (`Load Failed`)
+- Export-Optionen:
+  - Window-Presets (CT/MR/US + Auto)
+  - Export-Profile (`Custom`, `Clinic Standard`, `Research`, `Anonymized`)
+  - optionales Overlay mit optionaler Anonymisierung
+- Nachvollziehbarkeit:
+  - Sidecars pro Datei (`.json` + `.csv`)
+  - Queue-Report pro Lauf (`conversion-report-YYYYMMDD-HHMMSS.json`)
+- Komfort:
+  - Einstellungen werden zwischen App-Starts gespeichert
+  - Schnellzugriff auf Ausgabeordner und letzten Queue-Report
 
-Neu im modernisierten Fork:
+### Download für Endnutzer
 
-- einfachere Bedienung
-- robustere DICOM-Konvertierung
-- optionale Metadaten-Einblendung direkt im Video
-- optionale Anonymisierung für eingeblendete Personendaten
-- automatische Build-Pipeline für Windows, macOS und Linux über GitHub Releases
-
-### Download für normale Nutzer
-
-Du musst die EXE normalerweise **nicht selbst bauen**.
-
-Sobald Releases erstellt werden, kannst du auf der GitHub-Seite einfach die
-passende Datei herunterladen:
+Releases enthalten fertige Pakete:
 
 - `Dicom-Video-Extractor-windows-x64.zip`
 - `Dicom-Video-Extractor-macos.zip`
 - `Dicom-Video-Extractor-linux-x64.tar.gz`
 
-Die Dateien werden automatisch über GitHub Actions gebaut, wenn ein neues Tag
-wie `v1.0.0` erstellt wird oder der Workflow manuell gestartet wird.
+### Schneller Ablauf
 
-### Windows Anleitung
+1. DICOM-Dateien, DICOM-Ordner oder DICOMDIR auswählen.
+2. Vorschau und Metadaten prüfen.
+3. Ausgabeordner und Export-Optionen festlegen.
+4. `Convert Queue` starten.
+5. Bei Bedarf Queue pausieren, fortsetzen oder abbrechen.
+6. Nach dem Lauf Report/Sidecars prüfen und fehlgeschlagene Dateien per `Load Failed` erneut laden.
 
-1. Auf GitHub den neuesten Release öffnen.
-2. `Dicom-Video-Extractor-windows-x64.zip` herunterladen.
-3. ZIP-Datei entpacken.
-4. Den Ordner `Dicom-Video-Extractor` öffnen.
-5. `Dicom-Video-Extractor.exe` starten.
+### Hinweise
 
-Falls Windows nachfragt:
-
-- mit "Weitere Informationen" und dann "Trotzdem ausführen" bestätigen
-- das kann bei nicht signierten Programmen normal sein
-
-### macOS Anleitung
-
-1. Auf GitHub den neuesten Release öffnen.
-2. `Dicom-Video-Extractor-macos.zip` herunterladen.
-3. ZIP-Datei entpacken.
-4. Die App aus dem entpackten Ordner starten.
-
-Falls macOS blockiert:
-
-- in `Systemeinstellungen -> Datenschutz & Sicherheit` die App erlauben
-- beim ersten Start eventuell Rechtsklick -> Öffnen verwenden
-
-Hinweis:
-
-- die App ist aktuell nicht notariell signiert
-
-### Linux Anleitung
-
-1. Auf GitHub den neuesten Release öffnen.
-2. `Dicom-Video-Extractor-linux-x64.tar.gz` herunterladen.
-3. Archiv entpacken.
-4. Im entpackten Ordner das Programm starten.
-
-Beispiel:
-
-```bash
-tar -xzf Dicom-Video-Extractor-linux-x64.tar.gz
-cd Dicom-Video-Extractor
-./Dicom-Video-Extractor
-```
-
-### Bedienung ganz einfach
-
-1. DICOM-Dateien auswählen.
-2. Zielordner auswählen.
-3. Optional Format und FPS anpassen.
-4. Optional "Video overlay" aktivieren.
-5. Auswählen, welche Metadaten eingeblendet werden sollen.
-6. Optional "Anonymize personal data" aktivieren.
-7. Auf `Convert` klicken.
-
-### Was bei der Anonymisierung passiert
-
-Wenn die Anonymisierung aktiviert ist, werden eingeblendete Personendaten
-verändert:
-
-- Name wird in einen Platzhalternamen wie `Max Mustermann`, `Erika Musterfrau`,
-  `John Doe` oder `Jane Doe` umgewandelt
-- Patient ID wird zu einem anonymisierten Kennzeichen wie `ANON-XXXXXXXX`
-- Geburtsdatum wird zu Geburtsjahr oder Alter reduziert, wenn das möglich ist
-
-### Wichtiger Hinweis zu komprimierten DICOM-Dateien
-
-Einige DICOM-Dateien brauchen zusätzliche Decoder. Wenn so eine Datei nicht
-gelesen werden kann, gibt das Programm inzwischen einen klareren Hinweis auf
-passende Decoder wie `GDCM` oder `pylibjpeg`.
+- macOS-Builds sind aktuell nicht signiert/notarisiert.
+- Einige komprimierte DICOM-Dateien benötigen zusätzliche Decoder (z. B. `GDCM`, `pylibjpeg`).
 
 ## English
 
-### What it does
+### What the app does
 
-This application converts DICOM files into video files and can optionally burn
-selected metadata into the exported video.
+- Automatically detects whether a DICOM contains a **single image** or **moving image**
+- In-app preview:
+  - still preview for single-image DICOMs
+  - playback preview for moving-image DICOMs
+- Automatic content-based export:
+  - moving-image DICOM -> `MP4` + `AVI`
+  - single-image DICOM -> `PNG` + `JPG`
+- Import options:
+  - file picker (including extensionless files)
+  - recursive folder scan
+  - `DICOMDIR` import with series picker
+- Queue workflow:
+  - pause / resume / cancel
+  - prioritization controls
+  - reload failed files (`Load Failed`)
+- Export controls:
+  - medical window presets (CT/MR/US + Auto)
+  - export profiles (`Custom`, `Clinic Standard`, `Research`, `Anonymized`)
+  - optional overlay with optional anonymization
+- Traceability:
+  - per-file sidecars (`.json` + `.csv`)
+  - per-run queue report (`conversion-report-YYYYMMDD-HHMMSS.json`)
+- Usability:
+  - persistent settings across app restarts
+  - quick open buttons for output folder and latest report
 
-### Simple downloads
+## Local development
 
-End users should not need to build the app themselves. GitHub Actions can build
-release artifacts for:
+### Requirements
 
-- Windows
-- macOS
-- Linux
+- Python `3.11+`
 
-Tagged releases such as `v1.0.0` publish downloadable archives on the GitHub
-Releases page.
-
-### Local development
-
-Recommended Python version:
-
-```powershell
-Python 3.11+
-```
-
-Create a virtual environment and install dependencies:
+### Setup
 
 ```powershell
 python -m venv .venv --without-pip
 python -m pip --python .\.venv\Scripts\python.exe install -e .[build]
 ```
 
-Run tests:
+Optional decoder backends:
+
+```powershell
+python -m pip --python .\.venv\Scripts\python.exe install -e .[decoders]
+```
+
+### Run tests
 
 ```powershell
 $env:PYTHONPATH='src'
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Run the app:
+### Run the app
 
 ```powershell
 $env:PYTHONPATH='src'
 .\.venv\Scripts\python.exe app.py
 ```
 
-### Build locally
+## Build
 
-Windows:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
-```
-
-Cross-platform local build entry point:
+### Local build
 
 ```powershell
 python .\scripts\build-release.py
 ```
 
-Build output:
+Output folder:
 
 ```text
 release-build/dist/Dicom-Video-Extractor/
 ```
 
-## Current Project Layout
+### GitHub Release build
 
-- `src/dicom_video_extractor/`
-  Active application code.
-- `tests/`
-  Regression tests for conversion, frame-rate inference, and overlay behavior.
-- `scripts/build-release.py`
-  Shared PyInstaller entry point for release builds.
-- `.github/workflows/release.yml`
-  Cross-platform GitHub Actions build and release pipeline.
-- `Original/Source/`
-  Archived upstream source reference kept for comparison during migration.
-- `Enhanced/`
-  Archived enhanced upstream source reference without bundled runtime binaries.
+The workflow in `.github/workflows/release.yml` builds artifacts for Windows, macOS, and Linux when a tag `v*` is pushed.
+
+## Project layout
+
+- `src/dicom_video_extractor/` - application code
+- `tests/` - regression tests
+- `scripts/build-release.py` - cross-platform PyInstaller entrypoint
+- `.github/workflows/release.yml` - CI build + GitHub release publishing
 
 ## License
 
