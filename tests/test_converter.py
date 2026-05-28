@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -11,15 +12,18 @@ import numpy as np
 from dicom_video_extractor.converter import (
     DicomConversionError,
     apply_window_preset,
+    build_queue_report_path,
     build_sidecar_paths,
     build_output_path,
     build_output_paths_for_content,
     detect_content_type,
     normalize_pixel_array,
+    write_queue_report,
     write_metadata_sidecars,
 )
 from dicom_video_extractor.metadata import infer_frame_rate_from_dataset
 from dicom_video_extractor.models import (
+    ConversionFailure,
     ConversionOptions,
     ConversionResult,
     DicomContentType,
@@ -210,6 +214,61 @@ class SidecarExportTests(unittest.TestCase):
             csv_content = csv_path.read_text(encoding="utf-8")
             self.assertIn("source_path,content_type,frame_count", csv_content)
             self.assertIn("scan.dcm", csv_content)
+
+
+class QueueReportTests(unittest.TestCase):
+    def test_build_queue_report_path_uses_timestamp(self) -> None:
+        report_path = build_queue_report_path(
+            "C:/out",
+            timestamp=datetime(2026, 5, 29, 10, 15, 30),
+        )
+        self.assertEqual(report_path, Path("C:/out/conversion-report-20260529-101530.json"))
+
+    def test_write_queue_report_creates_json_payload(self) -> None:
+        options = ConversionOptions(
+            export_profile=ExportProfile.RESEARCH,
+            window_preset=WindowPreset.CT_SOFT_TISSUE,
+        )
+        results = [
+            ConversionResult(
+                source_path=Path("C:/input/a.dcm"),
+                output_paths=(Path("C:/out/a.mp4"), Path("C:/out/a.avi")),
+                frame_count=8,
+                fps=25.0,
+                content_type=DicomContentType.MOVING_IMAGE,
+            )
+        ]
+        failures = [
+            ConversionFailure(
+                source_path=Path("C:/input/b.dcm"),
+                message="decode error",
+            )
+        ]
+
+        with TemporaryDirectory() as tempdir:
+            report_path = write_queue_report(
+                results,
+                failures,
+                options,
+                tempdir,
+                timestamp=datetime(2026, 5, 29, 10, 15, 30),
+            )
+            self.assertTrue(report_path.exists())
+            self.assertEqual(
+                report_path.name,
+                "conversion-report-20260529-101530.json",
+            )
+
+            payload = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["summary"]["total"], 2)
+            self.assertEqual(payload["summary"]["successful"], 1)
+            self.assertEqual(payload["summary"]["failed"], 1)
+            self.assertEqual(payload["summary"]["moving_images"], 1)
+            self.assertEqual(payload["summary"]["single_images"], 0)
+            self.assertEqual(payload["options"]["export_profile"], "Research")
+            self.assertEqual(payload["options"]["window_preset"], "CT Soft Tissue")
+            self.assertEqual(Path(payload["results"][0]["source_path"]), Path("C:/input/a.dcm"))
+            self.assertEqual(payload["failures"][0]["message"], "decode error")
 
 
 class ConversionOptionsTests(unittest.TestCase):

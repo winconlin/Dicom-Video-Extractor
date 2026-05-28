@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -418,6 +419,77 @@ def write_metadata_sidecars(
         writer.writerow(payload)
 
     return (json_path, csv_path)
+
+
+def build_queue_report_path(
+    output_dir: str | Path,
+    *,
+    timestamp: datetime | None = None,
+) -> Path:
+    directory = Path(output_dir)
+    report_time = timestamp or datetime.now()
+    return directory / f"conversion-report-{report_time.strftime('%Y%m%d-%H%M%S')}.json"
+
+
+def write_queue_report(
+    results: list[ConversionResult],
+    failures: list[ConversionFailure],
+    options: ConversionOptions,
+    output_dir: str | Path,
+    *,
+    timestamp: datetime | None = None,
+) -> Path:
+    report_path = build_queue_report_path(output_dir, timestamp=timestamp)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    moving_count = sum(
+        1 for result in results if result.content_type is DicomContentType.MOVING_IMAGE
+    )
+    single_count = len(results) - moving_count
+    created_at = (timestamp or datetime.now()).isoformat(timespec="seconds")
+
+    report_payload: dict[str, Any] = {
+        "created_at": created_at,
+        "summary": {
+            "total": len(results) + len(failures),
+            "successful": len(results),
+            "failed": len(failures),
+            "moving_images": moving_count,
+            "single_images": single_count,
+        },
+        "options": {
+            "export_profile": options.export_profile.value,
+            "window_preset": options.window_preset.value,
+            "clip_limit": options.clip_limit,
+            "fps_override": options.fps_override,
+            "export_sidecars": options.export_sidecars,
+            "overlay_enabled": options.overlay_enabled,
+            "overlay_fields": [field.value for field in options.overlay_fields],
+            "anonymize_overlay": options.anonymize_overlay,
+        },
+        "results": [
+            {
+                "source_path": str(result.source_path),
+                "content_type": result.content_type.value,
+                "output_paths": [str(path) for path in result.output_paths],
+                "frame_count": result.frame_count,
+                "fps": result.fps,
+            }
+            for result in results
+        ],
+        "failures": [
+            {
+                "source_path": str(failure.source_path),
+                "message": failure.message,
+            }
+            for failure in failures
+        ],
+    }
+
+    with report_path.open("w", encoding="utf-8") as file_handle:
+        json.dump(report_payload, file_handle, ensure_ascii=False, indent=2)
+
+    return report_path
 
 
 def detect_content_type(metadata_number_of_frames: int | None, frames: np.ndarray) -> DicomContentType:
