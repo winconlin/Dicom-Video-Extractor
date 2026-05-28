@@ -16,6 +16,11 @@ class OutputFormat(str, Enum):
         return ".avi"
 
 
+class DicomContentType(str, Enum):
+    SINGLE_IMAGE = "single_image"
+    MOVING_IMAGE = "moving_image"
+
+
 class OverlayField(str, Enum):
     PATIENT_ID = "patient_id"
     PATIENT_NAME = "patient_name"
@@ -97,10 +102,14 @@ class DicomMetadata:
 @dataclass(slots=True)
 class ConversionResult:
     source_path: Path
-    output_path: Path
+    output_paths: tuple[Path, ...]
     frame_count: int
-    fps: float
-    output_format: OutputFormat
+    fps: float | None
+    content_type: DicomContentType
+
+    @property
+    def output_path(self) -> Path:
+        return self.output_paths[0]
 
 
 @dataclass(slots=True)

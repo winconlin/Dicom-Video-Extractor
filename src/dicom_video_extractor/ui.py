@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import base64
 import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from .converter import convert_files
-from .metadata import extract_metadata
-from .models import ConversionOptions, OutputFormat, OverlayField
+import numpy as np
+
+from .converter import convert_files, detect_content_type, load_dicom_frames, normalize_pixel_array
+from .metadata import extract_metadata, read_dataset
+from .models import ConversionOptions, DicomContentType, OverlayField
 from .overlay import ordered_overlay_fields
 
 
@@ -17,19 +20,50 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _frame_to_photoimage(frame: np.ndarray, max_width: int = 460, max_height: int = 320) -> tk.PhotoImage:
+    try:
+        import cv2
+    except ImportError as exc:  # pragma: no cover - depends on local environment
+        raise RuntimeError("OpenCV is required for preview rendering.") from exc
+
+    if frame.ndim == 2:
+        render_frame = frame
+    else:
+        render_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+    height, width = render_frame.shape[:2]
+    scale = min(max_width / max(width, 1), max_height / max(height, 1), 1.0)
+    if scale < 1.0:
+        scaled_width = max(1, int(width * scale))
+        scaled_height = max(1, int(height * scale))
+        render_frame = cv2.resize(render_frame, (scaled_width, scaled_height), interpolation=cv2.INTER_AREA)
+
+    success, encoded = cv2.imencode(".png", render_frame)
+    if not success:
+        raise RuntimeError("Could not generate preview image.")
+
+    return tk.PhotoImage(data=base64.b64encode(encoded.tobytes()).decode("ascii"))
+
+
 class WillowbendApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.selected_files: list[Path] = []
+        self.preview_frames: np.ndarray | None = None
+        self.preview_photo: tk.PhotoImage | None = None
+        self.preview_after_id: str | None = None
+        self.preview_frame_index = 0
+        self.preview_fps = 15.0
+        self.preview_content_type = DicomContentType.SINGLE_IMAGE
 
         self.output_dir_var = tk.StringVar(value=str(Path.cwd()))
         self.clip_limit_var = tk.StringVar(value="1.5")
         self.fps_override_var = tk.StringVar(value="")
-        self.output_format_var = tk.StringVar(value=OutputFormat.AVI.value)
         self.overlay_enabled_var = tk.BooleanVar(value=False)
         self.anonymize_overlay_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Select one or more DICOM files to begin.")
         self.file_count_var = tk.StringVar(value="0")
+        self.preview_mode_var = tk.StringVar(value="Preview: no file selected")
         self.overlay_field_vars = {
             field: tk.BooleanVar(
                 value=field
@@ -58,11 +92,12 @@ class WillowbendApp:
         self._build_window()
         self._build_layout()
         self._apply_icon()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_window(self) -> None:
         self.root.title("Dicom Video Extractor")
-        self.root.geometry("980x840")
-        self.root.minsize(860, 760)
+        self.root.geometry("1080x900")
+        self.root.minsize(920, 820)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
@@ -82,11 +117,11 @@ class WillowbendApp:
 
         subtitle = ttk.Label(
             frame,
-            text="Modernized standalone conversion workflow based on WillowbendDICOM.",
+            text="Automatic DICOM image/video detection, preview and export workflow.",
         )
         subtitle.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 16))
 
-        metadata_box = ttk.LabelFrame(frame, text="First selected file", padding=12)
+        metadata_box = ttk.LabelFrame(frame, text="Active file metadata", padding=12)
         metadata_box.grid(row=2, column=0, sticky="nsew", padx=(0, 12))
         metadata_box.columnconfigure(1, weight=1)
 
@@ -102,13 +137,26 @@ class WillowbendApp:
                 padx=(12, 0),
             )
 
-        files_box = ttk.LabelFrame(frame, text="Selected files", padding=12)
+        files_box = ttk.LabelFrame(frame, text="Selected files and preview", padding=12)
         files_box.grid(row=2, column=1, sticky="nsew")
         files_box.columnconfigure(0, weight=1)
         files_box.rowconfigure(0, weight=1)
+        files_box.rowconfigure(3, weight=1)
 
-        self.file_list = tk.Listbox(files_box, height=18)
+        self.file_list = tk.Listbox(files_box, height=10)
         self.file_list.grid(row=0, column=0, sticky="nsew")
+        self.file_list.bind("<<ListboxSelect>>", self._on_list_selection_changed)
+
+        ttk.Label(files_box, textvariable=self.preview_mode_var).grid(row=1, column=0, sticky="w", pady=(8, 4))
+
+        self.preview_label = ttk.Label(files_box, text="No preview available", anchor="center")
+        self.preview_label.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
+
+        preview_controls = ttk.Frame(files_box)
+        preview_controls.grid(row=3, column=0, sticky="w")
+        ttk.Button(preview_controls, text="Play", command=self.play_preview).grid(row=0, column=0)
+        ttk.Button(preview_controls, text="Pause", command=self.pause_preview).grid(row=0, column=1, padx=(8, 0))
+        ttk.Button(preview_controls, text="Restart", command=self.restart_preview).grid(row=0, column=2, padx=(8, 0))
 
         controls = ttk.LabelFrame(frame, text="Conversion options", padding=12)
         controls.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(16, 0))
@@ -120,13 +168,11 @@ class WillowbendApp:
         ttk.Entry(controls, textvariable=self.output_dir_var).grid(
             row=0,
             column=1,
-            columnspan=3,
+            columnspan=4,
             sticky="ew",
             padx=(8, 8),
         )
-        ttk.Button(controls, text="Browse...", command=self.choose_output_folder).grid(
-            row=0, column=4
-        )
+        ttk.Button(controls, text="Browse...", command=self.choose_output_folder).grid(row=0, column=5)
 
         ttk.Label(controls, text="Clip limit").grid(
             row=1, column=0, sticky="w", pady=(10, 0)
@@ -150,17 +196,10 @@ class WillowbendApp:
             pady=(10, 0),
         )
 
-        ttk.Label(controls, text="Format").grid(
-            row=1, column=4, sticky="w", pady=(10, 0)
-        )
-        format_box = ttk.Combobox(
+        ttk.Label(
             controls,
-            textvariable=self.output_format_var,
-            values=[item.value for item in OutputFormat],
-            state="readonly",
-            width=8,
-        )
-        format_box.grid(row=1, column=5, sticky="w", pady=(10, 0))
+            text="Export mode: auto (single image -> PNG+JPG, moving image -> MP4+AVI)",
+        ).grid(row=1, column=4, columnspan=2, sticky="w", pady=(10, 0))
 
         overlay_box = ttk.LabelFrame(controls, text="Video overlay", padding=10)
         overlay_box.grid(row=2, column=0, columnspan=6, sticky="ew", pady=(14, 0))
@@ -169,7 +208,7 @@ class WillowbendApp:
 
         ttk.Checkbutton(
             overlay_box,
-            text="Embed selected metadata into the video",
+            text="Embed selected metadata into exported media",
             variable=self.overlay_enabled_var,
         ).grid(row=0, column=0, sticky="w")
         ttk.Checkbutton(
@@ -180,7 +219,7 @@ class WillowbendApp:
 
         ttk.Label(
             overlay_box,
-            text="Select which fields should be visible in the exported video:",
+            text="Select which fields should be visible in the exported media:",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 6))
 
         for index, field in enumerate(ordered_overlay_fields()):
@@ -225,34 +264,92 @@ class WillowbendApp:
             except tk.TclError:
                 pass
 
+    def _on_close(self) -> None:
+        self.pause_preview()
+        self.root.destroy()
+
+    def _is_dicom_file(self, path: Path) -> bool:
+        if not path.is_file():
+            return False
+        try:
+            dataset = read_dataset(path, stop_before_pixels=True)
+        except Exception:
+            return False
+        if hasattr(dataset, "PixelData"):
+            return True
+        if getattr(dataset, "SOPClassUID", None):
+            return True
+        if getattr(dataset, "Rows", None) and getattr(dataset, "Columns", None):
+            return True
+        return False
+
     def choose_files(self) -> None:
         paths = filedialog.askopenfilenames(
             title="Choose DICOM files",
-            filetypes=(("DICOM files", "*.dcm"), ("All files", "*.*")),
+            filetypes=(
+                ("All files (including extensionless)", "*"),
+                ("DICOM files", "*.dcm *.dicom"),
+                ("Files without extension", "*."),
+            ),
         )
         if not paths:
             return
 
-        self.selected_files = [Path(item) for item in paths]
+        raw_files = [Path(item) for item in paths]
+        dicom_files = [path for path in raw_files if self._is_dicom_file(path)]
+        skipped_count = len(raw_files) - len(dicom_files)
+
+        if not dicom_files:
+            messagebox.showwarning("No DICOM files", "No valid DICOM files were found in your selection.")
+            self.status_var.set("Selection contains no valid DICOM files.")
+            return
+
+        self.selected_files = dicom_files
         self.file_list.delete(0, tk.END)
         for path in self.selected_files:
             self.file_list.insert(tk.END, path.name)
 
+        self.file_list.selection_clear(0, tk.END)
+        self.file_list.selection_set(0)
+        self.file_list.activate(0)
+
         self.file_count_var.set(str(len(self.selected_files)))
         self.output_dir_var.set(str(self.selected_files[0].parent))
         self.refresh_metadata()
-        self.status_var.set(f"{len(self.selected_files)} file(s) selected.")
+        self._load_preview_for_index(0)
+
+        if skipped_count > 0:
+            self.status_var.set(
+                f"{len(self.selected_files)} DICOM file(s) selected, {skipped_count} non-DICOM file(s) skipped."
+            )
+        else:
+            self.status_var.set(f"{len(self.selected_files)} DICOM file(s) selected.")
 
     def choose_output_folder(self) -> None:
         folder = filedialog.askdirectory(title="Choose output folder")
         if folder:
             self.output_dir_var.set(folder)
 
+    def _selected_index(self) -> int | None:
+        selection = self.file_list.curselection()
+        if selection:
+            return int(selection[0])
+        if self.selected_files:
+            return 0
+        return None
+
+    def _selected_file(self) -> Path | None:
+        index = self._selected_index()
+        if index is None:
+            return None
+        if index < 0 or index >= len(self.selected_files):
+            return None
+        return self.selected_files[index]
+
     def refresh_metadata(self) -> None:
-        if not self.selected_files:
-            messagebox.showwarning(
-                "No file selected", "Choose one or more DICOM files first."
-            )
+        selected_file = self._selected_file()
+        if selected_file is None:
+            messagebox.showwarning("No file selected", "Choose one or more DICOM files first.")
             return
 
         try:
@@ -260,7 +357,7 @@ class WillowbendApp:
                 self.fps_override_var.get()
             )
             metadata = extract_metadata(
-                self.selected_files[0],
+                selected_file,
                 fps_override=fps_override,
             )
         except Exception as exc:
@@ -271,7 +368,14 @@ class WillowbendApp:
         for label, value in metadata.as_display_rows():
             self.metadata_vars[label].set(value)
 
-        self.status_var.set(f"Loaded metadata for {self.selected_files[0].name}.")
+        self.status_var.set(f"Loaded metadata for {selected_file.name}.")
+
+    def _on_list_selection_changed(self, _: object) -> None:
+        index = self._selected_index()
+        if index is None:
+            return
+        self.refresh_metadata()
+        self._load_preview_for_index(index)
 
     def _parse_optional_positive_float(self, raw_value: str) -> float | None:
         stripped = raw_value.strip()
@@ -289,8 +393,7 @@ class WillowbendApp:
             raise ValueError("Clip limit must be zero or greater.")
 
         fps_override = self._parse_optional_positive_float(self.fps_override_var.get())
-        output_format = OutputFormat(self.output_format_var.get())
-        overlay_fields: tuple[OverlayField, ...] = ()
+        overlay_fields = ()
         if self.overlay_enabled_var.get():
             overlay_fields = tuple(
                 field
@@ -299,12 +402,91 @@ class WillowbendApp:
             )
 
         return ConversionOptions(
-            output_format=output_format,
             clip_limit=clip_limit,
             fps_override=fps_override,
             overlay_fields=overlay_fields,
             anonymize_overlay=self.anonymize_overlay_var.get(),
         )
+
+    def _load_preview_for_index(self, index: int) -> None:
+        if index < 0 or index >= len(self.selected_files):
+            return
+
+        path = self.selected_files[index]
+        self.pause_preview()
+
+        try:
+            raw_frames = load_dicom_frames(path)
+            frames = normalize_pixel_array(raw_frames)
+            metadata = extract_metadata(path)
+        except Exception as exc:
+            self.preview_frames = None
+            self.preview_photo = None
+            self.preview_label.configure(text=f"Preview failed: {exc}", image="")
+            self.preview_mode_var.set("Preview: unavailable")
+            return
+
+        self.preview_frames = frames
+        self.preview_frame_index = 0
+        self.preview_content_type = detect_content_type(metadata.number_of_frames, frames)
+        self.preview_fps = metadata.cine_rate or 15.0
+
+        if self.preview_content_type is DicomContentType.MOVING_IMAGE:
+            self.preview_mode_var.set(f"Preview: moving image ({frames.shape[0]} frames, {self.preview_fps:g} FPS)")
+            self.play_preview()
+        else:
+            self.preview_mode_var.set("Preview: single image")
+            self._render_preview_frame(0)
+
+    def _render_preview_frame(self, index: int) -> None:
+        if self.preview_frames is None:
+            return
+        frame_count = int(self.preview_frames.shape[0])
+        if frame_count <= 0:
+            return
+        safe_index = index % frame_count
+        frame = self.preview_frames[safe_index]
+        self.preview_photo = _frame_to_photoimage(frame)
+        self.preview_label.configure(image=self.preview_photo, text="")
+        self.preview_frame_index = safe_index
+
+    def _preview_tick(self) -> None:
+        if self.preview_frames is None:
+            return
+        frame_count = int(self.preview_frames.shape[0])
+        if frame_count <= 1:
+            self._render_preview_frame(0)
+            return
+
+        next_index = (self.preview_frame_index + 1) % frame_count
+        self._render_preview_frame(next_index)
+        interval_ms = max(20, int(round(1000.0 / max(self.preview_fps, 1.0))))
+        self.preview_after_id = self.root.after(interval_ms, self._preview_tick)
+
+    def play_preview(self) -> None:
+        if self.preview_frames is None:
+            return
+        if self.preview_content_type is DicomContentType.SINGLE_IMAGE:
+            self._render_preview_frame(0)
+            return
+        if self.preview_after_id is not None:
+            return
+        self._preview_tick()
+
+    def pause_preview(self) -> None:
+        if self.preview_after_id is None:
+            return
+        self.root.after_cancel(self.preview_after_id)
+        self.preview_after_id = None
+
+    def restart_preview(self) -> None:
+        if self.preview_frames is None:
+            return
+        self.preview_frame_index = 0
+        self._render_preview_frame(0)
+        if self.preview_content_type is DicomContentType.MOVING_IMAGE:
+            self.pause_preview()
+            self.play_preview()
 
     def convert(self) -> None:
         if not self.selected_files:
@@ -329,10 +511,17 @@ class WillowbendApp:
 
         results, failures = convert_files(self.selected_files, output_dir, options)
 
+        moving_count = sum(1 for result in results if result.content_type is DicomContentType.MOVING_IMAGE)
+        image_count = len(results) - moving_count
+
         if results and not failures:
             messagebox.showinfo(
                 "Conversion complete",
-                f"Successfully converted {len(results)} file(s) to {options.output_format.value}.",
+                (
+                    f"Converted {len(results)} file(s).\n"
+                    f"- Moving image DICOMs: {moving_count} (each exported as MP4 + AVI)\n"
+                    f"- Single image DICOMs: {image_count} (each exported as PNG + JPG)"
+                ),
             )
             self.status_var.set(f"Converted {len(results)} file(s) successfully.")
             return
@@ -344,7 +533,12 @@ class WillowbendApp:
             )
             messagebox.showwarning(
                 "Partial success",
-                f"Converted {len(results)} file(s), but {len(failures)} failed:\n{failure_text}",
+                (
+                    f"Converted {len(results)} file(s), but {len(failures)} failed.\n\n"
+                    f"- Moving image DICOMs: {moving_count} (MP4 + AVI)\n"
+                    f"- Single image DICOMs: {image_count} (PNG + JPG)\n\n"
+                    f"Failures:\n{failure_text}"
+                ),
             )
             self.status_var.set(
                 f"Converted {len(results)} file(s), {len(failures)} failed."
