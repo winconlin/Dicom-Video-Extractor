@@ -233,24 +233,31 @@ class WillowbendApp:
 
         actions = ttk.Frame(frame)
         actions.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(16, 0))
-        actions.columnconfigure(2, weight=1)
+        actions.columnconfigure(3, weight=1)
 
         ttk.Button(
             actions, text="Select DICOM files...", command=self.choose_files
         ).grid(row=0, column=0)
         ttk.Button(
-            actions, text="Refresh metadata", command=self.refresh_metadata
+            actions, text="Select DICOM folder...", command=self.choose_folder
         ).grid(
             row=0,
             column=1,
             padx=(8, 0),
         )
-        ttk.Label(actions, text="Files:").grid(row=0, column=3, sticky="e")
+        ttk.Button(
+            actions, text="Refresh metadata", command=self.refresh_metadata
+        ).grid(
+            row=0,
+            column=2,
+            padx=(8, 0),
+        )
+        ttk.Label(actions, text="Files:").grid(row=0, column=4, sticky="e")
         ttk.Label(actions, textvariable=self.file_count_var).grid(
-            row=0, column=4, sticky="w", padx=(6, 0)
+            row=0, column=5, sticky="w", padx=(6, 0)
         )
         ttk.Button(actions, text="Convert", command=self.convert).grid(
-            row=0, column=5, padx=(12, 0)
+            row=0, column=6, padx=(12, 0)
         )
 
         status = ttk.Label(frame, textvariable=self.status_var)
@@ -296,12 +303,58 @@ class WillowbendApp:
             return
 
         raw_files = [Path(item) for item in paths]
-        dicom_files = [path for path in raw_files if self._is_dicom_file(path)]
-        skipped_count = len(raw_files) - len(dicom_files)
+        self._apply_dicom_selection(
+            raw_files,
+            output_dir_hint=raw_files[0].parent if raw_files else None,
+            source_label="selection",
+        )
+
+    def choose_folder(self) -> None:
+        folder = filedialog.askdirectory(title="Choose folder with DICOM files")
+        if not folder:
+            return
+
+        root_dir = Path(folder)
+        candidates = [path for path in root_dir.rglob("*") if path.is_file()]
+        if not candidates:
+            messagebox.showwarning("Folder is empty", "No files were found in the selected folder.")
+            self.status_var.set("Selected folder contains no files.")
+            return
+
+        self.status_var.set(f"Scanning {len(candidates)} file(s) recursively for DICOM data...")
+        self.root.update_idletasks()
+        self._apply_dicom_selection(
+            candidates,
+            output_dir_hint=root_dir,
+            source_label=f"folder scan ({root_dir})",
+        )
+
+    def _apply_dicom_selection(
+        self,
+        candidates: list[Path],
+        *,
+        output_dir_hint: Path | None,
+        source_label: str,
+    ) -> None:
+        dicom_files: list[Path] = []
+        skipped_count = 0
+
+        total = len(candidates)
+        for index, path in enumerate(candidates, start=1):
+            if self._is_dicom_file(path):
+                dicom_files.append(path)
+            else:
+                skipped_count += 1
+
+            if index % 250 == 0:
+                self.status_var.set(
+                    f"Scanning files... {index}/{total} checked, {len(dicom_files)} DICOM found."
+                )
+                self.root.update_idletasks()
 
         if not dicom_files:
-            messagebox.showwarning("No DICOM files", "No valid DICOM files were found in your selection.")
-            self.status_var.set("Selection contains no valid DICOM files.")
+            messagebox.showwarning("No DICOM files", "No valid DICOM files were found.")
+            self.status_var.set(f"{source_label}: 0 DICOM files found in {total} checked files.")
             return
 
         self.selected_files = dicom_files
@@ -314,16 +367,15 @@ class WillowbendApp:
         self.file_list.activate(0)
 
         self.file_count_var.set(str(len(self.selected_files)))
-        self.output_dir_var.set(str(self.selected_files[0].parent))
+        if output_dir_hint is not None:
+            self.output_dir_var.set(str(output_dir_hint))
+        else:
+            self.output_dir_var.set(str(self.selected_files[0].parent))
         self.refresh_metadata()
         self._load_preview_for_index(0)
-
-        if skipped_count > 0:
-            self.status_var.set(
-                f"{len(self.selected_files)} DICOM file(s) selected, {skipped_count} non-DICOM file(s) skipped."
-            )
-        else:
-            self.status_var.set(f"{len(self.selected_files)} DICOM file(s) selected.")
+        self.status_var.set(
+            f"{source_label}: {len(self.selected_files)} DICOM file(s) selected, {skipped_count} non-DICOM skipped."
+        )
 
     def choose_output_folder(self) -> None:
         folder = filedialog.askdirectory(title="Choose output folder")
