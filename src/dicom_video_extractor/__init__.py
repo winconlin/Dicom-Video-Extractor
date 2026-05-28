@@ -1,5 +1,6 @@
 from .converter import (
     DicomConversionError,
+    apply_window_preset,
     build_output_path,
     build_output_paths_for_content,
     convert_file,
@@ -21,6 +22,7 @@ from .models import (
     DicomMetadata,
     OutputFormat,
     OverlayField,
+    WindowPreset,
 )
 from .overlay import build_overlay_lines, ordered_overlay_fields
 from .ui import WillowbendApp, main
@@ -35,6 +37,8 @@ __all__ = [
     "DicomMetadata",
     "OverlayField",
     "OutputFormat",
+    "WindowPreset",
+    "apply_window_preset",
     "build_overlay_lines",
     "build_output_path",
     "build_output_paths_for_content",

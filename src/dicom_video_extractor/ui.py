@@ -17,6 +17,7 @@ from .models import (
     DicomContentType,
     DicomDirSeries,
     OverlayField,
+    WindowPreset,
 )
 from .overlay import ordered_overlay_fields
 
@@ -73,6 +74,7 @@ class WillowbendApp:
         self.output_dir_var = tk.StringVar(value=str(Path.cwd()))
         self.clip_limit_var = tk.StringVar(value="1.5")
         self.fps_override_var = tk.StringVar(value="")
+        self.window_preset_var = tk.StringVar(value=WindowPreset.AUTO.value)
         self.overlay_enabled_var = tk.BooleanVar(value=False)
         self.anonymize_overlay_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Select one or more DICOM files to begin.")
@@ -104,6 +106,7 @@ class WillowbendApp:
             for field in ordered_overlay_fields()
         }
         self.metadata_vars = {
+            "Modality": tk.StringVar(value=""),
             "Patient ID": tk.StringVar(value=""),
             "Patient Name": tk.StringVar(value=""),
             "Patient Sex": tk.StringVar(value=""),
@@ -115,6 +118,8 @@ class WillowbendApp:
             "Manufacturer": tk.StringVar(value=""),
             "Frames": tk.StringVar(value=""),
             "FPS": tk.StringVar(value=""),
+            "Window Center": tk.StringVar(value=""),
+            "Window Width": tk.StringVar(value=""),
         }
 
         self._build_window()
@@ -236,13 +241,31 @@ class WillowbendApp:
             pady=(10, 0),
         )
 
+        ttk.Label(controls, text="Window preset").grid(
+            row=2, column=0, sticky="w", pady=(10, 0)
+        )
+        window_preset_box = ttk.Combobox(
+            controls,
+            textvariable=self.window_preset_var,
+            values=[item.value for item in WindowPreset],
+            state="readonly",
+            width=20,
+        )
+        window_preset_box.grid(
+            row=2,
+            column=1,
+            sticky="w",
+            padx=(8, 8),
+            pady=(10, 0),
+        )
+
         ttk.Label(
             controls,
             text="Export mode: auto (single image -> PNG+JPG, moving image -> MP4+AVI)",
-        ).grid(row=1, column=4, columnspan=2, sticky="w", pady=(10, 0))
+        ).grid(row=2, column=2, columnspan=4, sticky="w", pady=(10, 0))
 
         overlay_box = ttk.LabelFrame(controls, text="Video overlay", padding=10)
-        overlay_box.grid(row=2, column=0, columnspan=6, sticky="ew", pady=(14, 0))
+        overlay_box.grid(row=3, column=0, columnspan=6, sticky="ew", pady=(14, 0))
         overlay_box.columnconfigure(0, weight=1)
         overlay_box.columnconfigure(1, weight=1)
 
@@ -724,6 +747,7 @@ class WillowbendApp:
             raise ValueError("Clip limit must be zero or greater.")
 
         fps_override = self._parse_optional_positive_float(self.fps_override_var.get())
+        window_preset = WindowPreset(self.window_preset_var.get())
         overlay_fields = ()
         if self.overlay_enabled_var.get():
             overlay_fields = tuple(
@@ -735,6 +759,7 @@ class WillowbendApp:
         return ConversionOptions(
             clip_limit=clip_limit,
             fps_override=fps_override,
+            window_preset=window_preset,
             overlay_fields=overlay_fields,
             anonymize_overlay=self.anonymize_overlay_var.get(),
         )

@@ -12,7 +12,9 @@ from .models import (
     ConversionOptions,
     ConversionResult,
     DicomContentType,
+    DicomMetadata,
     OutputFormat,
+    WindowPreset,
 )
 from .overlay import build_overlay_lines
 
@@ -119,6 +121,88 @@ def _scale_frame_to_uint8(frame: np.ndarray) -> np.ndarray:
 
     scaled = (frame_float - min_val_f) * (255.0 / (max_val_f - min_val_f))
     return np.clip(scaled, 0, 255).astype(np.uint8)
+
+
+def _apply_window_center_width(frame: np.ndarray, center: float, width: float) -> np.ndarray:
+    if width <= 1:
+        return np.zeros(frame.shape, dtype=np.uint8)
+    lower = center - (width / 2.0)
+    upper = center + (width / 2.0)
+    clipped = np.clip(frame.astype(np.float32, copy=False), lower, upper)
+    scaled = (clipped - lower) * (255.0 / (upper - lower))
+    return np.clip(scaled, 0, 255).astype(np.uint8)
+
+
+def _apply_percentile_window(frame: np.ndarray, lower_pct: float, upper_pct: float) -> np.ndarray:
+    data = frame.astype(np.float32, copy=False)
+    lower = float(np.percentile(data, lower_pct))
+    upper = float(np.percentile(data, upper_pct))
+    if upper <= lower:
+        return _scale_frame_to_uint8(frame)
+    clipped = np.clip(data, lower, upper)
+    scaled = (clipped - lower) * (255.0 / (upper - lower))
+    return np.clip(scaled, 0, 255).astype(np.uint8)
+
+
+def _is_color_like(array: np.ndarray) -> bool:
+    if array.ndim >= 3 and array.shape[-1] in (3, 4):
+        return True
+    if array.ndim == 3 and array.shape[0] in (3, 4):
+        return True
+    return False
+
+
+def _window_center_width_for_preset(
+    metadata: DicomMetadata,
+    preset: WindowPreset,
+) -> tuple[float, float] | None:
+    if preset is WindowPreset.AUTO:
+        if metadata.window_center is not None and metadata.window_width is not None and metadata.window_width > 1:
+            return (metadata.window_center, metadata.window_width)
+        return None
+    if preset is WindowPreset.CT_SOFT_TISSUE:
+        return (40.0, 400.0)
+    if preset is WindowPreset.CT_LUNG:
+        return (-600.0, 1500.0)
+    if preset is WindowPreset.CT_BONE:
+        return (300.0, 2000.0)
+    return None
+
+
+def apply_window_preset(
+    pixel_array: np.ndarray,
+    metadata: DicomMetadata,
+    preset: WindowPreset,
+) -> np.ndarray:
+    array = np.asarray(pixel_array)
+    array = np.squeeze(array)
+
+    if array.ndim < 2 or _is_color_like(array):
+        return array
+
+    height, width = array.shape[-2:]
+    frames = array.reshape((-1, height, width))
+    wc_ww = _window_center_width_for_preset(metadata, preset)
+    if wc_ww is not None:
+        center, window_width = wc_ww
+        return np.stack(
+            [_apply_window_center_width(frame, center, window_width) for frame in frames],
+            axis=0,
+        )
+
+    if preset is WindowPreset.MR_BRAIN:
+        return np.stack(
+            [_apply_percentile_window(frame, 1.0, 99.0) for frame in frames],
+            axis=0,
+        )
+
+    if preset is WindowPreset.US_GENERAL:
+        return np.stack(
+            [_apply_percentile_window(frame, 5.0, 98.0) for frame in frames],
+            axis=0,
+        )
+
+    return array
 
 
 def _flatten_grayscale_frames(array: np.ndarray) -> np.ndarray:
@@ -355,7 +439,12 @@ def convert_file(
         fps_override=resolved_options.fps_override,
     )
     raw_frames = load_dicom_frames(source_path)
-    normalized_frames = normalize_pixel_array(raw_frames)
+    preprocessed_frames = apply_window_preset(
+        raw_frames,
+        metadata,
+        resolved_options.window_preset,
+    )
+    normalized_frames = normalize_pixel_array(preprocessed_frames)
     content_type = detect_content_type(metadata.number_of_frames, normalized_frames)
     enhanced_frames = enhance_frames(normalized_frames, resolved_options.clip_limit)
     overlay_lines = build_overlay_lines(
