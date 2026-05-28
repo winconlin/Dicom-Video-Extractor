@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import importlib.util
+import json
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -362,6 +364,61 @@ def build_output_paths_for_content(
     )
 
 
+def build_sidecar_paths(
+    source_path: str | Path,
+    output_dir: str | Path,
+) -> tuple[Path, Path]:
+    input_path = Path(source_path)
+    directory = Path(output_dir)
+    return (
+        directory / f"{input_path.stem}.json",
+        directory / f"{input_path.stem}.csv",
+    )
+
+
+def _sidecar_payload(
+    metadata: DicomMetadata,
+    result: ConversionResult,
+    options: ConversionOptions,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "source_path": str(result.source_path),
+        "content_type": result.content_type.value,
+        "frame_count": result.frame_count,
+        "fps": result.fps,
+        "output_paths": "|".join(str(path) for path in result.output_paths),
+        "window_preset": options.window_preset.value,
+        "clip_limit": options.clip_limit,
+        "fps_override": options.fps_override,
+        "overlay_enabled": options.overlay_enabled,
+        "overlay_fields": "|".join(field.value for field in options.overlay_fields),
+        "anonymize_overlay": options.anonymize_overlay,
+    }
+    payload.update(metadata.as_dict())
+    return payload
+
+
+def write_metadata_sidecars(
+    metadata: DicomMetadata,
+    result: ConversionResult,
+    options: ConversionOptions,
+    output_dir: str | Path,
+) -> tuple[Path, Path]:
+    json_path, csv_path = build_sidecar_paths(result.source_path, output_dir)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = _sidecar_payload(metadata, result, options)
+
+    with json_path.open("w", encoding="utf-8") as file_handle:
+        json.dump(payload, file_handle, ensure_ascii=False, indent=2)
+
+    with csv_path.open("w", encoding="utf-8", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=list(payload.keys()))
+        writer.writeheader()
+        writer.writerow(payload)
+
+    return (json_path, csv_path)
+
+
 def detect_content_type(metadata_number_of_frames: int | None, frames: np.ndarray) -> DicomContentType:
     if metadata_number_of_frames is not None and metadata_number_of_frames > 1:
         return DicomContentType.MOVING_IMAGE
@@ -475,13 +532,16 @@ def convert_file(
         write_image(first_frame, output_paths[0])
         write_image(first_frame, output_paths[1])
 
-    return ConversionResult(
+    result = ConversionResult(
         source_path=Path(source_path),
         output_paths=output_paths,
         frame_count=int(final_frames.shape[0]),
         fps=fps,
         content_type=content_type,
     )
+    if resolved_options.export_sidecars:
+        write_metadata_sidecars(metadata, result, resolved_options, output_dir)
+    return result
 
 
 def convert_files(

@@ -75,6 +75,7 @@ class WillowbendApp:
         self.clip_limit_var = tk.StringVar(value="1.5")
         self.fps_override_var = tk.StringVar(value="")
         self.window_preset_var = tk.StringVar(value=WindowPreset.AUTO.value)
+        self.export_sidecars_var = tk.BooleanVar(value=True)
         self.overlay_enabled_var = tk.BooleanVar(value=False)
         self.anonymize_overlay_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Select one or more DICOM files to begin.")
@@ -259,10 +260,16 @@ class WillowbendApp:
             pady=(10, 0),
         )
 
+        ttk.Checkbutton(
+            controls,
+            text="Export metadata sidecars (.json + .csv)",
+            variable=self.export_sidecars_var,
+        ).grid(row=2, column=2, sticky="w", pady=(10, 0))
+
         ttk.Label(
             controls,
             text="Export mode: auto (single image -> PNG+JPG, moving image -> MP4+AVI)",
-        ).grid(row=2, column=2, columnspan=4, sticky="w", pady=(10, 0))
+        ).grid(row=2, column=3, columnspan=3, sticky="w", pady=(10, 0), padx=(8, 0))
 
         overlay_box = ttk.LabelFrame(controls, text="Video overlay", padding=10)
         overlay_box.grid(row=3, column=0, columnspan=6, sticky="ew", pady=(14, 0))
@@ -760,6 +767,7 @@ class WillowbendApp:
             clip_limit=clip_limit,
             fps_override=fps_override,
             window_preset=window_preset,
+            export_sidecars=self.export_sidecars_var.get(),
             overlay_fields=overlay_fields,
             anonymize_overlay=self.anonymize_overlay_var.get(),
         )
@@ -958,6 +966,11 @@ class WillowbendApp:
 
         results = self.queue_results
         failures = self.queue_failures
+        sidecar_text = ""
+        sidecar_block = ""
+        if self.queue_options is not None and self.queue_options.export_sidecars:
+            sidecar_text = "\n- Sidecar metadata: JSON + CSV per source file"
+            sidecar_block = "- Sidecar metadata: JSON + CSV per source file\n\n"
         moving_count = sum(
             1
             for result in results
@@ -973,6 +986,7 @@ class WillowbendApp:
                     f"Converted {len(results)} file(s).\n"
                     f"- Moving image DICOMs: {moving_count} (each exported as MP4 + AVI)\n"
                     f"- Single image DICOMs: {image_count} (each exported as PNG + JPG)"
+                    f"{sidecar_text}"
                 ),
             )
             self.status_var.set(f"Queue complete: converted {len(results)} file(s).")
@@ -989,6 +1003,7 @@ class WillowbendApp:
                     f"Converted {len(results)} file(s), but {len(failures)} failed.\n\n"
                     f"- Moving image DICOMs: {moving_count} (MP4 + AVI)\n"
                     f"- Single image DICOMs: {image_count} (PNG + JPG)\n\n"
+                    f"{sidecar_block}"
                     f"Failures:\n{failure_text}"
                 ),
             )

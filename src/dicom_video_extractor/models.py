@@ -67,6 +67,7 @@ class ConversionOptions:
     default_fps: int = 15
     fps_override: float | None = None
     window_preset: WindowPreset = WindowPreset.AUTO
+    export_sidecars: bool = True
     overlay_fields: tuple[OverlayField, ...] = ()
     anonymize_overlay: bool = False
 
@@ -113,6 +114,25 @@ class DicomMetadata:
             ("Window Center", "" if self.window_center is None else f"{self.window_center:g}"),
             ("Window Width", "" if self.window_width is None else f"{self.window_width:g}"),
         ]
+
+    def as_dict(self) -> dict[str, str | int | float | None]:
+        return {
+            "source_path": str(self.source_path),
+            "modality": self.modality,
+            "patient_id": self.patient_id,
+            "patient_name": self.patient_name,
+            "patient_birth_date": self.patient_birth_date,
+            "patient_sex": self.patient_sex,
+            "study_id": self.study_id,
+            "study_date": self.study_date,
+            "study_time": self.study_time,
+            "institution_name": self.institution_name,
+            "manufacturer": self.manufacturer,
+            "number_of_frames": self.number_of_frames,
+            "cine_rate": self.cine_rate,
+            "window_center": self.window_center,
+            "window_width": self.window_width,
+        }
 
 
 @dataclass(slots=True)
