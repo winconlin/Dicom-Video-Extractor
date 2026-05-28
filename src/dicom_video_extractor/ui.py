@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import os
+import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -101,6 +103,7 @@ class WillowbendApp:
         self.queue_output_dir = ""
         self.queue_cancel_requested = False
         self.last_failed_files: list[Path] = []
+        self.last_report_path: Path | None = None
         self.app_settings = load_app_settings()
         safe_defaults = default_app_settings()
         profile_choices = tuple(item.value for item in ExportProfile)
@@ -140,6 +143,8 @@ class WillowbendApp:
         self.resume_queue_button: ttk.Button | None = None
         self.cancel_queue_button: ttk.Button | None = None
         self.retry_failed_button: ttk.Button | None = None
+        self.open_output_button: ttk.Button | None = None
+        self.open_report_button: ttk.Button | None = None
         self.move_up_button: ttk.Button | None = None
         self.move_down_button: ttk.Button | None = None
         self.prioritize_button: ttk.Button | None = None
@@ -379,7 +384,7 @@ class WillowbendApp:
 
         actions = ttk.Frame(frame)
         actions.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(16, 0))
-        actions.columnconfigure(9, weight=1)
+        actions.columnconfigure(11, weight=1)
 
         self.select_files_button = ttk.Button(
             actions, text="Select DICOM files...", command=self.choose_files
@@ -439,9 +444,22 @@ class WillowbendApp:
             state="disabled",
         )
         self.retry_failed_button.grid(row=0, column=8, padx=(8, 0))
-        ttk.Label(actions, text="Files:").grid(row=0, column=10, sticky="e")
+        self.open_output_button = ttk.Button(
+            actions,
+            text="Open Output",
+            command=self.open_output_folder,
+        )
+        self.open_output_button.grid(row=0, column=9, padx=(8, 0))
+        self.open_report_button = ttk.Button(
+            actions,
+            text="Open Report",
+            command=self.open_last_report,
+            state="disabled",
+        )
+        self.open_report_button.grid(row=0, column=10, padx=(8, 0))
+        ttk.Label(actions, text="Files:").grid(row=0, column=12, sticky="e")
         ttk.Label(actions, textvariable=self.file_count_var).grid(
-            row=0, column=11, sticky="w", padx=(6, 0)
+            row=0, column=13, sticky="w", padx=(6, 0)
         )
 
         status = ttk.Label(frame, textvariable=self.status_var)
@@ -526,7 +544,41 @@ class WillowbendApp:
             self.retry_failed_button,
             enabled=(not busy) and bool(self.last_failed_files),
         )
+        self._set_button_state(
+            self.open_report_button,
+            enabled=(not busy) and self.last_report_path is not None and self.last_report_path.exists(),
+        )
         self.file_list.configure(state="disabled" if busy else "normal")
+
+    def _open_path(self, path: Path) -> None:
+        if not path.exists():
+            raise FileNotFoundError(f"Path does not exist: {path}")
+        if sys.platform.startswith("win"):
+            os.startfile(str(path))  # type: ignore[attr-defined]
+            return
+        if sys.platform == "darwin":
+            subprocess.run(["open", str(path)], check=True)
+            return
+        subprocess.run(["xdg-open", str(path)], check=True)
+
+    def open_output_folder(self) -> None:
+        output_dir = Path(self.output_dir_var.get().strip() or str(Path.cwd()))
+        try:
+            self._open_path(output_dir)
+        except Exception as exc:
+            messagebox.showerror("Open folder failed", str(exc))
+
+    def open_last_report(self) -> None:
+        if self.last_report_path is None:
+            messagebox.showinfo(
+                "No report yet",
+                "No queue report has been generated in this session yet.",
+            )
+            return
+        try:
+            self._open_path(self.last_report_path)
+        except Exception as exc:
+            messagebox.showerror("Open report failed", str(exc))
 
     def _selected_list_index(self) -> int | None:
         selection = self.file_list.curselection()
@@ -1122,6 +1174,7 @@ class WillowbendApp:
         self.queue_results = []
         self.queue_failures = []
         self.last_failed_files = []
+        self.last_report_path = None
         self.queue_options = options
         self.queue_output_dir = output_dir
         self.queue_progress_value_var.set(0.0)
@@ -1243,10 +1296,12 @@ class WillowbendApp:
                     self.queue_options,
                     self.queue_output_dir,
                 )
+                self.last_report_path = report_path
                 report_text = f"\n- Queue report: {report_path.name}"
                 report_block = f"- Queue report: {report_path.name}\n\n"
             except Exception as exc:
                 report_error = str(exc)
+                self.last_report_path = None
         moving_count = sum(
             1
             for result in results
