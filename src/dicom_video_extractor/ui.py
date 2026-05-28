@@ -8,7 +8,13 @@ from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
 
-from .converter import convert_file, detect_content_type, load_dicom_frames, normalize_pixel_array
+from .converter import (
+    convert_file,
+    detect_content_type,
+    load_dicom_frames,
+    normalize_pixel_array,
+    write_queue_report,
+)
 from .metadata import extract_metadata, parse_dicomdir_series, read_dataset
 from .models import (
     ConversionFailure,
@@ -1067,9 +1073,24 @@ class WillowbendApp:
         failures = self.queue_failures
         sidecar_text = ""
         sidecar_block = ""
+        report_text = ""
+        report_block = ""
+        report_error: str | None = None
         if self.queue_options is not None and self.queue_options.export_sidecars:
             sidecar_text = "\n- Sidecar metadata: JSON + CSV per source file"
             sidecar_block = "- Sidecar metadata: JSON + CSV per source file\n\n"
+        if self.queue_options is not None:
+            try:
+                report_path = write_queue_report(
+                    results,
+                    failures,
+                    self.queue_options,
+                    self.queue_output_dir,
+                )
+                report_text = f"\n- Queue report: {report_path.name}"
+                report_block = f"- Queue report: {report_path.name}\n\n"
+            except Exception as exc:
+                report_error = str(exc)
         moving_count = sum(
             1
             for result in results
@@ -1086,9 +1107,13 @@ class WillowbendApp:
                     f"- Moving image DICOMs: {moving_count} (each exported as MP4 + AVI)\n"
                     f"- Single image DICOMs: {image_count} (each exported as PNG + JPG)"
                     f"{sidecar_text}"
+                    f"{report_text}"
                 ),
             )
-            self.status_var.set(f"Queue complete: converted {len(results)} file(s).")
+            if report_error is not None:
+                self.status_var.set(f"Queue complete, but report export failed: {report_error}")
+            else:
+                self.status_var.set(f"Queue complete: converted {len(results)} file(s).")
             return
 
         if results and failures:
@@ -1103,12 +1128,18 @@ class WillowbendApp:
                     f"- Moving image DICOMs: {moving_count} (MP4 + AVI)\n"
                     f"- Single image DICOMs: {image_count} (PNG + JPG)\n\n"
                     f"{sidecar_block}"
+                    f"{report_block}"
                     f"Failures:\n{failure_text}"
                 ),
             )
-            self.status_var.set(
-                f"Queue complete: {len(results)} converted, {len(failures)} failed."
-            )
+            if report_error is None:
+                self.status_var.set(
+                    f"Queue complete: {len(results)} converted, {len(failures)} failed."
+                )
+            else:
+                self.status_var.set(
+                    f"Queue complete: {len(results)} converted, {len(failures)} failed; report error: {report_error}"
+                )
             return
 
         failure_text = "\n".join(
@@ -1116,9 +1147,13 @@ class WillowbendApp:
             for failure in failures[:5]
         )
         messagebox.showerror(
-            "Conversion failed", failure_text or "Unknown conversion error."
+            "Conversion failed",
+            (failure_text or "Unknown conversion error.") + report_text,
         )
-        self.status_var.set("Queue failed: all files failed.")
+        if report_error is None:
+            self.status_var.set("Queue failed: all files failed.")
+        else:
+            self.status_var.set(f"Queue failed: all files failed; report error: {report_error}")
 
 
 def main() -> None:

@@ -2,6 +2,7 @@ from .converter import (
     DicomConversionError,
     apply_window_preset,
     build_sidecar_paths,
+    build_queue_report_path,
     build_output_path,
     build_output_paths_for_content,
     convert_file,
@@ -12,6 +13,7 @@ from .converter import (
     normalize_pixel_array,
     write_image,
     write_metadata_sidecars,
+    write_queue_report,
     write_video,
 )
 from .metadata import extract_metadata, infer_frame_rate_from_dataset, parse_dicomdir_series, read_dataset
@@ -44,6 +46,7 @@ __all__ = [
     "WindowPreset",
     "apply_window_preset",
     "build_sidecar_paths",
+    "build_queue_report_path",
     "build_overlay_lines",
     "build_output_path",
     "build_output_paths_for_content",
@@ -62,5 +65,6 @@ __all__ = [
     "WillowbendApp",
     "write_image",
     "write_metadata_sidecars",
+    "write_queue_report",
     "write_video",
 ]
