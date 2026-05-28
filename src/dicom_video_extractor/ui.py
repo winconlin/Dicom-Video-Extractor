@@ -42,6 +42,21 @@ def _safe_choice(raw_value: str, valid_values: tuple[str, ...], fallback: str) -
     return fallback
 
 
+def _prepare_retry_candidates(paths: list[Path]) -> tuple[list[Path], int]:
+    deduplicated: list[Path] = []
+    seen: set[Path] = set()
+    missing_count = 0
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        if path.exists() and path.is_file():
+            deduplicated.append(path)
+        else:
+            missing_count += 1
+    return deduplicated, missing_count
+
+
 def _frame_to_photoimage(frame: np.ndarray, max_width: int = 460, max_height: int = 320) -> tk.PhotoImage:
     try:
         import cv2
@@ -84,6 +99,8 @@ class WillowbendApp:
         self.queue_failures: list[ConversionFailure] = []
         self.queue_options: ConversionOptions | None = None
         self.queue_output_dir = ""
+        self.queue_cancel_requested = False
+        self.last_failed_files: list[Path] = []
         self.app_settings = load_app_settings()
         safe_defaults = default_app_settings()
         profile_choices = tuple(item.value for item in ExportProfile)
@@ -121,6 +138,8 @@ class WillowbendApp:
         self.convert_button: ttk.Button | None = None
         self.pause_queue_button: ttk.Button | None = None
         self.resume_queue_button: ttk.Button | None = None
+        self.cancel_queue_button: ttk.Button | None = None
+        self.retry_failed_button: ttk.Button | None = None
         self.move_up_button: ttk.Button | None = None
         self.move_down_button: ttk.Button | None = None
         self.prioritize_button: ttk.Button | None = None
@@ -360,7 +379,7 @@ class WillowbendApp:
 
         actions = ttk.Frame(frame)
         actions.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(16, 0))
-        actions.columnconfigure(6, weight=1)
+        actions.columnconfigure(9, weight=1)
 
         self.select_files_button = ttk.Button(
             actions, text="Select DICOM files...", command=self.choose_files
@@ -406,9 +425,23 @@ class WillowbendApp:
             state="disabled",
         )
         self.resume_queue_button.grid(row=0, column=6, padx=(8, 0))
-        ttk.Label(actions, text="Files:").grid(row=0, column=7, sticky="e")
+        self.cancel_queue_button = ttk.Button(
+            actions,
+            text="Cancel Queue",
+            command=self.cancel_conversion_queue,
+            state="disabled",
+        )
+        self.cancel_queue_button.grid(row=0, column=7, padx=(8, 0))
+        self.retry_failed_button = ttk.Button(
+            actions,
+            text="Load Failed",
+            command=self.load_failed_files,
+            state="disabled",
+        )
+        self.retry_failed_button.grid(row=0, column=8, padx=(8, 0))
+        ttk.Label(actions, text="Files:").grid(row=0, column=10, sticky="e")
         ttk.Label(actions, textvariable=self.file_count_var).grid(
-            row=0, column=8, sticky="w", padx=(6, 0)
+            row=0, column=11, sticky="w", padx=(6, 0)
         )
 
         status = ttk.Label(frame, textvariable=self.status_var)
@@ -488,6 +521,11 @@ class WillowbendApp:
         self._set_button_state(self.convert_button, enabled=not busy)
         self._set_button_state(self.pause_queue_button, enabled=busy and not paused)
         self._set_button_state(self.resume_queue_button, enabled=busy and paused)
+        self._set_button_state(self.cancel_queue_button, enabled=busy)
+        self._set_button_state(
+            self.retry_failed_button,
+            enabled=(not busy) and bool(self.last_failed_files),
+        )
         self.file_list.configure(state="disabled" if busy else "normal")
 
     def _selected_list_index(self) -> int | None:
@@ -542,6 +580,42 @@ class WillowbendApp:
 
     def prioritize_selected_file(self) -> None:
         self._move_selected_file(0)
+
+    def load_failed_files(self) -> None:
+        if self.queue_running:
+            messagebox.showinfo("Queue running", "Wait until the queue is stopped.")
+            return
+        retry_files, missing_count = _prepare_retry_candidates(self.last_failed_files)
+        if not retry_files:
+            if missing_count > 0:
+                messagebox.showwarning(
+                    "Files unavailable",
+                    "All failed files are unavailable or were moved.",
+                )
+                self.status_var.set(
+                    f"Could not reload failed queue: {missing_count} missing file(s)."
+                )
+            else:
+                messagebox.showinfo(
+                    "No failed files",
+                    "There are no failed files from the last queue run.",
+                )
+            return
+
+        self.selected_files = retry_files
+        self.file_list.delete(0, tk.END)
+        for path in self.selected_files:
+            self.file_list.insert(tk.END, path.name)
+
+        self.file_count_var.set(str(len(self.selected_files)))
+        self._restore_selection(0)
+        self.refresh_metadata()
+        self._load_preview_for_index(0)
+
+        message = f"Loaded {len(self.selected_files)} failed file(s) back into the queue."
+        if missing_count > 0:
+            message += f" {missing_count} unavailable file(s) were skipped."
+        self.status_var.set(message)
 
     def _is_dicom_file(self, path: Path) -> bool:
         if not path.is_file():
@@ -1043,9 +1117,11 @@ class WillowbendApp:
         total = len(self.selected_files)
         self.queue_running = True
         self.queue_paused = False
+        self.queue_cancel_requested = False
         self.queue_index = 0
         self.queue_results = []
         self.queue_failures = []
+        self.last_failed_files = []
         self.queue_options = options
         self.queue_output_dir = output_dir
         self.queue_progress_value_var.set(0.0)
@@ -1077,10 +1153,23 @@ class WillowbendApp:
         self._set_queue_ui_state()
         self.root.after(5, self._process_queue_step)
 
+    def cancel_conversion_queue(self) -> None:
+        if not self.queue_running:
+            return
+        self.queue_cancel_requested = True
+        if self.queue_paused:
+            self._finish_conversion_queue(canceled=True)
+            return
+        self.status_var.set("Queue cancel requested. Stopping after current file.")
+        self._set_queue_ui_state()
+
     def _process_queue_step(self) -> None:
         if not self.queue_running:
             return
         if self.queue_paused:
+            return
+        if self.queue_cancel_requested:
+            self._finish_conversion_queue(canceled=True)
             return
 
         total = len(self.selected_files)
@@ -1114,6 +1203,10 @@ class WillowbendApp:
         self.queue_progress_value_var.set(float(self.queue_index))
         self.queue_progress_text_var.set(f"Queue progress: {self.queue_index}/{total}")
 
+        if self.queue_cancel_requested:
+            self._finish_conversion_queue(canceled=True)
+            return
+
         if self.queue_index >= total:
             self._finish_conversion_queue()
             return
@@ -1125,13 +1218,15 @@ class WillowbendApp:
 
         self.root.after(5, self._process_queue_step)
 
-    def _finish_conversion_queue(self) -> None:
+    def _finish_conversion_queue(self, *, canceled: bool = False) -> None:
         self.queue_running = False
         self.queue_paused = False
-        self._set_queue_ui_state()
+        self.queue_cancel_requested = False
 
         results = self.queue_results
         failures = self.queue_failures
+        self.last_failed_files = [failure.source_path for failure in failures]
+        self._set_queue_ui_state()
         sidecar_text = ""
         sidecar_block = ""
         report_text = ""
@@ -1158,7 +1253,45 @@ class WillowbendApp:
             if result.content_type is DicomContentType.MOVING_IMAGE
         )
         image_count = len(results) - moving_count
-        self.queue_current_file_var.set("Current file: done")
+        processed_count = len(results) + len(failures)
+        total_count = len(self.selected_files)
+        self.queue_current_file_var.set(
+            "Current file: canceled" if canceled else "Current file: done"
+        )
+
+        if canceled:
+            failure_text = "\n".join(
+                f"- {failure.source_path.name}: {failure.message}"
+                for failure in failures[:5]
+            )
+            message = (
+                f"Queue canceled after {processed_count}/{total_count} file(s).\n"
+                f"- Converted: {len(results)}\n"
+                f"- Failed: {len(failures)}\n"
+                f"- Moving image DICOMs: {moving_count}\n"
+                f"- Single image DICOMs: {image_count}"
+                f"{sidecar_text}"
+                f"{report_text}"
+            )
+            if failure_text:
+                message += f"\n\nFailures:\n{failure_text}"
+            if failures:
+                messagebox.showwarning("Queue canceled", message)
+            else:
+                messagebox.showinfo("Queue canceled", message)
+
+            if report_error is None:
+                self.status_var.set(
+                    f"Queue canceled: {processed_count}/{total_count} processed, {len(failures)} failed."
+                )
+            else:
+                self.status_var.set(
+                    (
+                        f"Queue canceled: {processed_count}/{total_count} processed, "
+                        f"{len(failures)} failed; report error: {report_error}"
+                    )
+                )
+            return
 
         if results and not failures:
             messagebox.showinfo(
